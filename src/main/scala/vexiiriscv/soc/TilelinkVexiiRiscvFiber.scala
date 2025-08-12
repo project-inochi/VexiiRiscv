@@ -21,6 +21,7 @@ import vexiiriscv.fetch.{FetchCachelessPlugin, FetchCachelessTileLinkPlugin, Fet
 import vexiiriscv.memory.AddressTranslationService
 import vexiiriscv.misc.PrivilegedPlugin
 import vexiiriscv.riscv.Riscv
+import vexiiriscv.soc.aia._
 
 import java.io.{BufferedWriter, File, FileWriter}
 import java.nio.file.Files
@@ -72,17 +73,44 @@ class TilelinkVexiiRiscvFiber(plugins : ArrayBuffer[Hostable]) extends Area with
     }
   }
 
+  /**
+    * M需要将所有的source都delegation到S上
+    *
+    */
+  def bind(M: TilelinkAPLICFiber, S: TilelinkAPLICFiber) = priv match {
+    case Some(priv) => new Area {
+      val pp = priv.plugin
+      val intIdBase = pp.hartIds(0)
+      M.mapDownInterrupt(intIdBase, priv.mei)
 
-  // Add the plugins to bridge the CPU toward Tilelink
-  plugins.foreach {
-    case p: FetchCachelessPlugin => plugins += new FetchCachelessTileLinkPlugin(iBus)
-    case p: FetchL1Plugin => plugins += new FetchL1TileLinkPlugin(iBus)
-    case p: LsuCachelessPlugin => plugins += new LsuCachelessTileLinkPlugin(dBus)
-    case p: LsuPlugin => plugins += new LsuTileLinkPlugin(dBus)
-    case p: LsuL1Plugin => plugins += new LsuL1TileLinkPlugin(lsuL1Bus)
-    case _ =>
+      // 待优化
+      if(pp.p.withSupervisor) {
+        S.mapDownInterrupt(intIdBase, priv.sei)
+      }
+    }
   }
 
+
+  // Add the plugins to bridge the CPU toward Tilelink
+  // plugins.foreach {
+  //   case p: FetchCachelessPlugin => plugins += new FetchCachelessTileLinkPlugin(iBus)
+  //   case p: FetchL1Plugin => plugins += new FetchL1TileLinkPlugin(iBus)
+  //   case p: LsuCachelessPlugin => plugins += new LsuCachelessTileLinkPlugin(dBus)
+  //   case p: LsuPlugin => plugins += new LsuTileLinkPlugin(dBus)
+  //   case p: LsuL1Plugin => plugins += new LsuL1TileLinkPlugin(lsuL1Bus)
+  //   case _ =>
+  // }
+
+  val toAdd = collection.mutable.ArrayBuffer[Hostable]()
+  plugins.foreach {
+    case p: FetchCachelessPlugin => toAdd += new FetchCachelessTileLinkPlugin(iBus)
+    case p: FetchL1Plugin => toAdd += new FetchL1TileLinkPlugin(iBus)
+    case p: LsuCachelessPlugin => toAdd += new LsuCachelessTileLinkPlugin(dBus)
+    case p: LsuPlugin => toAdd += new LsuTileLinkPlugin(dBus)
+    case p: LsuL1Plugin => toAdd += new LsuL1TileLinkPlugin(lsuL1Bus)
+    case _ =>
+  }
+  plugins ++= toAdd
 
   val logic = Fiber setup new Area{
     val core = VexiiRiscv(plugins)

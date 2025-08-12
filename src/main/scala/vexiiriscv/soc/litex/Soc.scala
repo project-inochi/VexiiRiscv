@@ -26,6 +26,7 @@ import spinal.lib.graphic.vga.{TilelinkVgaCtrlFiber, TilelinkVgaCtrlSpec, Vga, V
 import spinal.lib.misc.{Elf, PathTracer, TilelinkClintFiber}
 import spinal.lib.misc.plic.TilelinkPlicFiber
 import spinal.lib.misc.test.DualSimTracer
+import spinal.lib.misc.InterruptNode
 import spinal.lib.sim.SparseMemory
 import spinal.lib.{AnalysisUtils, Delay, Flow, ResetCtrlFiber, StreamPipe, master, memPimped, slave, traversableOncePimped}
 import spinal.lib.system.tag.{MemoryConnection, MemoryEndpoint, MemoryEndpointTag, MemoryTransferTag, MemoryTransfers, PMA, VirtualEndpoint}
@@ -38,6 +39,7 @@ import vexiiriscv.misc.{PrivilegedPlugin, TrapPlugin}
 import vexiiriscv.prediction.GSharePlugin
 import vexiiriscv.riscv.Riscv
 import vexiiriscv.schedule.DispatchPlugin
+import vexiiriscv.soc.aia._
 import vexiiriscv.soc.TilelinkVexiiRiscvFiber
 import vexiiriscv.soc.micro.MicroSocSim.{elfFile, traceKonata, withRvlsCheck}
 import vexiiriscv.test.{VexiiRiscvProbe, WhiteboxerPlugin}
@@ -230,23 +232,49 @@ class Soc(c : SocConfig) extends Component {
       val clint = new TilelinkClintFiber()
       clint.node at 0xF0010000l of bus
 
-      val plic = new TilelinkPlicFiber()
-      plic.node at 0xF0C00000l of bus
+      /* TODO:
+       * 1. 地址分配(0xF0C00000l)
+       * 2. litex定义aplic地址
+       * 3. 修改externalInterrupts\fromArgs
+       * 4. 选模式 ✔
+       * 5. 配置aplic
+       *
+       * externalInterrupts初始化了所有31个source
+       */
+
+      val aplic_M = new TilelinkAPLICFiber()
+      aplic_M.node at 0xF0C00000l of bus
+
+      val aplic_S = new TilelinkAPLICFiber()
+      aplic_S.node at 0xF0E00000l of bus
+
+      aplic_M.domainParam = Some(APlicDomainParam.root(APlicGenParam.direct))
+      aplic_S.domainParam = Some(APlicDomainParam.S(APlicGenParam.direct))
 
       val externalInterrupts = new Area {
         val port = in Bits (32 bits)
         val toPlic = for (i <- 0 to 31) yield (i != 0) generate new Area {
-          val node = plic.createInterruptSlave(i)
-          node.withUps = false
+          val node = InterruptNode.master()
+          aplic_M.mapUpInterrupt(i, node)
           node.flag := port(i)
         }
       }
 
-      val fromArgs = new PeriphTilelinkFiber(periph, bus, plic)
+      val slavesourceIds = 1 to 31
+      val slaveInfos = APlicSlaveInfo(0, slavesourceIds)
+      val slaveSources = aplic_M.createInterruptDelegation(slaveInfos)
+      val sourcesSBundles = slavesourceIds.zip(slaveSources.flags).map {
+        case (id, slaveSource) => aplic_S.mapUpInterrupt(id, slaveSource)
+      }
+      aplic_S.mmsiaddrcfg := aplic_M.mmsiaddrcfg
+      aplic_S.smsiaddrcfg := aplic_M.smsiaddrcfg
 
+      val fromArgs = new PeriphTilelinkFiber(periph, bus, aplic_M)
+
+      // M/S的targets连线、M的delegation连线
       for (vexii <- vexiis) {
         vexii.bind(clint)
-        vexii.bind(plic)
+        vexii.bind(aplic_M, aplic_S)
       }
 
       val toAxiLite4 = new fabric.AxiLite4Bridge
@@ -319,8 +347,8 @@ class Soc(c : SocConfig) extends Component {
         rxCd = rxResetCtrl.cd
       )
       fiber.ctrl at spec.ctrlAddress of ioBus
-      peripheral.plic.mapUpInterrupt(spec.txInterruptId, fiber.txInterrupt)
-      peripheral.plic.mapUpInterrupt(spec.rxInterruptId, fiber.rxInterrupt)
+      peripheral.aplic_M.mapUpInterrupt(spec.txInterruptId, fiber.txInterrupt)
+      peripheral.aplic_M.mapUpInterrupt(spec.rxInterruptId, fiber.rxInterrupt)
       dmaFilter.up << fiber.txMem
       dmaFilter.up << fiber.rxMem
       dmaFilter.down.setDownConnection(a = StreamPipe.M2S, d = StreamPipe.M2S)

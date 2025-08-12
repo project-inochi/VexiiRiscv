@@ -1,0 +1,34 @@
+
+== AIA device IP
+
+|===
+| Name | Function | Status
+
+.5+| APLIC
+| Interrupt Delegation
+| ✓
+
+| Direct delivery mode
+| ✓
+
+| MSI delivery mode
+| ✗
+
+| GENMSI Register
+| ✗
+
+| Big-Endian
+| ✗
+
+.2+| IMSIC
+| Dispatcher trigger
+| ✓
+
+| Endian support
+| -
+
+|===
+
+TODOs:
+
+1. Split the direct delivery mode process in `APlicSource` [x]

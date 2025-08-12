@@ -5,11 +5,13 @@ val spinalHdlPath = sys.env.getOrElse("SPINALHDL_PATH", "./ext/SpinalHDL")
 
 def rootGen() = {
   var ret = (project in file(".")).settings(
-    scalaVersion := SpinalVersion.compilers.head,
+    // scalaVersion := SpinalVersion.compilers.head,
+    scalaVersion := SpinalVersion.compilers.last,
     crossScalaVersions := SpinalVersion.compilers,
     inThisBuild(List(
       organization := "com.github.spinalhdl",
-      scalaVersion := SpinalVersion.compilers.head,
+      // scalaVersion := SpinalVersion.compilers.head,
+      scalaVersion := SpinalVersion.compilers.last,
       crossScalaVersions := SpinalVersion.compilers,
       version := "2.0.0"
     )),
