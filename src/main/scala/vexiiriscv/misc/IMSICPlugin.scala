@@ -13,7 +13,7 @@ import scala.collection.mutable.ArrayBuffer
 
 // sourceIds?
 case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) extends FiberPlugin {
-  case class request(idWidth: Int) extends Bundle {
+  case class Request(idWidth: Int) extends Bundle {
     val id  = UInt(idWidth bits)
     val iep = Bool()
   }
@@ -21,10 +21,11 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
   val idWidth = log2Up((sourceIds ++ Seq(0)).max + 1)
 
   val logic = during setup new Area {
-
     val indirect = host[IndirectCsrPlugin]
     val cap = host[CsrAccessPlugin]
     val buildBefore = retains(cap.csrLock)
+
+    val topiId = CODE().assignDontCare()
 
     awaitBuild()
 
@@ -42,6 +43,13 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
         api.write(eidelivery, deliveryFilter)
         api.read(eithreshold, thresholdFilter)
         api.write(eithreshold, thresholdFilter)
+
+        // tmp
+        for (i <- 0 until 16) {
+          val iprioFilter = hart.m.getCsrFilter(IndirectCSR.iprio0 + i, CSR.MIREG)
+          api.read(U(0), iprioFilter)
+        }
+
         val sources = for ((sourceId, i) <- sourceIds.zipWithIndex) yield new Area {
           val id = sourceId
           val ie = RegInit(False)
@@ -61,7 +69,7 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
         }
 
         val requests = sources.map { s =>
-          val r = request(idWidth)
+          val r = Request(idWidth)
           r.id  := s.id
           r.iep := s.ie && s.ip
           r
@@ -75,7 +83,6 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
         val identity = out((result.iep && (eithreshold === 0 || result.id < eithreshold)) ? result.id | 0)
 
         api.read(CSR.MTOPEI, 0 -> identity, 16 -> identity)
-
         // onlyonfire?
         api.onWrite(CSR.MTOPEI, false) {
           switch(identity) {
@@ -86,6 +93,8 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
             }
           }
         }
+
+        api.read(CSR.MTOPI, 0 -> U(1), 16 -> topiId)
 
         def eipArbiter(aplicTarget: Bool): Bool = {
           eidelivery.mux(
@@ -99,7 +108,6 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
       val s = withSupervisor generate new Area {
         val eidelivery = out(RegInit(U(0x40000000, XLEN bits)))
         val eithreshold = RegInit(U(0, XLEN bits))
-        val topi = RegInit(U(0, XLEN bits))
 
         val deliveryFilter = hart.s.getCsrFilter(IndirectCSR.eidelivery, CSR.SIREG)
         val thresholdFilter = hart.s.getCsrFilter(IndirectCSR.eithreshold, CSR.SIREG)
@@ -108,6 +116,13 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
         api.write(eidelivery, deliveryFilter)
         api.read(eithreshold, thresholdFilter)
         api.write(eithreshold, thresholdFilter)
+
+        // tmp
+        for (i <- 0 until 16) {
+          val iprioFilter = hart.s.getCsrFilter(IndirectCSR.iprio0 + i, CSR.SIREG)
+          api.read(U(0), iprioFilter)
+        }
+
         val sources = for ((sourceId, i) <- sourceIds.zipWithIndex) yield new Area {
           val id = sourceId
           val ie = RegInit(False)
@@ -127,7 +142,7 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
         }
 
         val requests = sources.map { s =>
-          val r = request(idWidth)
+          val r = Request(idWidth)
           r.id  := s.id
           r.iep := s.ie && s.ip
           r
@@ -151,6 +166,8 @@ case class IMSICPlugin(val sourceIds : Seq[Int], val withSupervisor : Boolean) e
             }
           }
         }
+
+        api.read(CSR.STOPI, 0 -> U(1), 16 -> topiId)
 
         def eipArbiter(aplicTarget: Bool): Bool = {
           eidelivery.mux(

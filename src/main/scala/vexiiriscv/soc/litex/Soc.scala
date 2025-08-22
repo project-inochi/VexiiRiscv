@@ -249,6 +249,8 @@ class Soc(c : SocConfig) extends Component {
        * 14. TilelinkIMSICIInfo hartid
        * 15. imsic plugin参数（imsicsourcenum==0？。。|。。）
        * 16. trriger -> s
+       * 17. 类名首字母大写
+       * 18. mcause与topi不一致的情况
        *
        */
 

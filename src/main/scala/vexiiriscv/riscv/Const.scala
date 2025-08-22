@@ -183,6 +183,7 @@ object CSR {
 }
 
 object IndirectCSR{
+  val iprio0      = 0x30
   val eidelivery  = 0x70
   val eithreshold = 0x72
   val eip0        = 0x80
