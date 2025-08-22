@@ -989,6 +989,7 @@ class ParamSimple() {
     plugins += new CsrAccessPlugin(early0, writeBackKey =  if(lanes == 1) "lane0" else "lane1")
     plugins += new IndirectCsrPlugin(privParam.withSupervisor)
     plugins += new PrivilegedPlugin(privParam, withHartIdInput.mux(null, hartId until hartId+hartCount))
+    plugins += new IMSICPlugin(for (i <- 1 until 64) yield i, privParam.withSupervisor)
     plugins += new TrapPlugin(trapAt = intWritebackAt)
     plugins += new EnvPlugin(early0, executeAt = 0)
     if(embeddedJtagTap || embeddedJtagInstruction) plugins += new EmbeddedRiscvJtag(
@@ -1187,5 +1188,3 @@ lane micro op spec
   - mayFlushUpTo
   - dontFlushFrom
  */
-
-
