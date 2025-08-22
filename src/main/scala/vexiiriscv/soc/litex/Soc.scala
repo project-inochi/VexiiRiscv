@@ -233,23 +233,47 @@ class Soc(c : SocConfig) extends Component {
       clint.node at 0xF0010000l of bus
 
       /* TODO:
-       * 1. 地址分配(0xF0C00000l)
-       * 2. litex定义aplic地址
-       * 3. 修改externalInterrupts\fromArgs
-       * 4. 选模式 ✔
-       * 5. 配置aplic
+       * imsic地址分配(opensbi配置)
+       * mmsiaddr/smsiaddr
+       * aplicmsifiber 1
+       * 6. core address mapping
+       * 4. dtb
+       * 5. param 条件add plugin imsic选择性实现
+       * imsicplugin ie
+       * delivery 0x4000
+       * 9. 检查topei的逻辑 +topi逻辑
+       * 10. aplic与plic选择实现
+       * 11. 修改幻数
+       * 12. imsicPlugin的m、s一致 -> func
+       * 13. riscvfiber格式一致(pp)
+       * 14. TilelinkIMSICIInfo hartid
+       * 15. imsic plugin参数（imsicsourcenum==0？。。|。。）
+       * 16. trriger -> s
        *
-       * externalInterrupts初始化了所有31个source
        */
 
       val aplic_M = new TilelinkAPLICFiber()
       aplic_M.node at 0xF0C00000l of bus
 
+      val aplicSender_M = TilelinkAPLICMSISenderFiber()
+      ioBus << aplicSender_M.node
+      aplicSender_M.createMSIStreamConsumer() << aplic_M.createMSIStreamProducer()
+
       val aplic_S = new TilelinkAPLICFiber()
       aplic_S.node at 0xF0E00000l of bus
 
-      aplic_M.domainParam = Some(APlicDomainParam.root(APlicGenParam.direct))
-      aplic_S.domainParam = Some(APlicDomainParam.S(APlicGenParam.direct))
+      val aplicSender_S = TilelinkAPLICMSISenderFiber()
+      ioBus << aplicSender_S.node
+      aplicSender_S.createMSIStreamConsumer() << aplic_S.createMSIStreamProducer()
+
+      val imsic_M = TilelinkIMSICFiber()
+      imsic_M.node at 0xf100_0000l of bus
+
+      val imsic_S = TilelinkIMSICFiber()
+      imsic_S.node at 0xf120_0000l of bus
+
+      aplic_M.domainParam = Some(APlicDomainParam.root(APlicGenParam.full))
+      aplic_S.domainParam = Some(APlicDomainParam.S(APlicGenParam.full))
 
       val externalInterrupts = new Area {
         val port = in Bits (32 bits)
@@ -275,6 +299,7 @@ class Soc(c : SocConfig) extends Component {
       for (vexii <- vexiis) {
         vexii.bind(clint)
         vexii.bind(aplic_M, aplic_S)
+        vexii.bind(imsic_M, imsic_S)
       }
 
       val toAxiLite4 = new fabric.AxiLite4Bridge

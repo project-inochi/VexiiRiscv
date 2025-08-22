@@ -20,6 +20,7 @@ import vexiiriscv.execute.lsu.{LsuCachelessPlugin, LsuCachelessTileLinkPlugin, L
 import vexiiriscv.fetch.{FetchCachelessPlugin, FetchCachelessTileLinkPlugin, FetchL1TileLinkPlugin, FetchL1Plugin}
 import vexiiriscv.memory.AddressTranslationService
 import vexiiriscv.misc.PrivilegedPlugin
+import vexiiriscv.misc.IMSICPlugin
 import vexiiriscv.riscv.Riscv
 import vexiiriscv.soc.aia._
 
@@ -45,6 +46,14 @@ class TilelinkVexiiRiscvFiber(plugins : ArrayBuffer[Hostable]) extends Area with
       val sei = p.p.withSupervisor generate InterruptNode.slave()
       val stoptime = Bool()
       val rdtime = p.p.withRdTime generate UInt(64 bits)
+    }
+  }
+
+  val imsic = plugins.collectFirst {
+    case p: IMSICPlugin => new Area {
+      val plugin = p
+      val triggers_M = Bits(p.sourceIds.size bits)
+      val triggers_S = Bits(p.sourceIds.size bits)
     }
   }
 
@@ -83,13 +92,23 @@ class TilelinkVexiiRiscvFiber(plugins : ArrayBuffer[Hostable]) extends Area with
       val intIdBase = pp.hartIds(0)
       M.mapDownInterrupt(intIdBase, priv.mei)
 
-      // 待优化
       if(pp.p.withSupervisor) {
         S.mapDownInterrupt(intIdBase, priv.sei)
       }
     }
   }
 
+  def bind(M: TilelinkIMSICFiber, S: TilelinkIMSICFiber) = (imsic, priv) match {
+    case (Some(imsic), Some(priv)) => new Area {
+      val intIdBase = priv.plugin.hartIds(0)
+
+      val trigger_M = M.addIMSICinfo(TilelinkIMSICIInfo(intIdBase, 0, for(i <- 1 until 64) yield i))
+      val trigger_S = S.addIMSICinfo(TilelinkIMSICIInfo(intIdBase, 0, for(i <- 1 until 64) yield i))
+
+      imsic.triggers_M.asBools.lazyZip(trigger_M.asBools).foreach(_ := _)
+      imsic.triggers_S.asBools.lazyZip(trigger_S.asBools).foreach(_ := _)
+    }
+  }
 
   // Add the plugins to bridge the CPU toward Tilelink
   // plugins.foreach {
@@ -131,10 +150,16 @@ class TilelinkVexiiRiscvFiber(plugins : ArrayBuffer[Hostable]) extends Area with
         val hart = p.logic.harts(0)
         hart.int.m.timer := priv.get.mti.flag
         hart.int.m.software := priv.get.msi.flag
-        hart.int.m.external := priv.get.mei.flag
+        hart.int.m.external := imsic.get.plugin.logic.harts(0).m.eipArbiter(priv.get.mei.flag)
         priv.get.stoptime := p.p.withDebug.mux(hart.debug.stoptime, False)
-        if (p.p.withSupervisor) hart.int.s.external := priv.get.sei.flag
+        if (p.p.withSupervisor) hart.int.s.external := imsic.get.plugin.logic.harts(0).s.eipArbiter(priv.get.sei.flag)
         if (p.p.withRdTime) p.logic.rdtime := priv.get.rdtime
+      }
+      case p: IMSICPlugin => {
+        val hart = p.logic.harts(0)
+
+        hart.m.sources.lazyZip(imsic.get.triggers_M.asBools).foreach(_.trigger := _)
+        hart.s.sources.lazyZip(imsic.get.triggers_S.asBools).foreach(_.trigger := _)
       }
       case _ =>
     }
