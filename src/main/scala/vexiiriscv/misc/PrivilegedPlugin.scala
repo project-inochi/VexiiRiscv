@@ -37,6 +37,16 @@ object PrivilegedParam{
     debugTriggersLsu = false,
     withHartIdInputDefaulted = false
   )
+  // change to seq with index.
+  val prioMap = Map(
+    11 -> 1,
+    3  -> 2,
+    7  -> 3,
+    9  -> 4,
+    1  -> 5,
+    5  -> 6,
+    13 -> 7
+  )
 }
 
 class LsuTriggerBus(triggers : Int) extends Bundle {
@@ -70,7 +80,7 @@ case class PrivilegedParam(var withSupervisor : Boolean,
 }
 
 case class Delegator(var enable: Bool, privilege: Int)
-case class InterruptSpec(var cond: Bool, id: Int, privilege: Int, delegators: List[Delegator])
+case class InterruptSpec(var cond: Bool, id: Int, privilege: Int, iprio: Int, delegators: List[Delegator])
 case class ExceptionSpec(id: Int, delegators: List[Delegator])
 
 /**
@@ -175,7 +185,9 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         val exception = ArrayBuffer[ExceptionSpec]()
 
         def addInterrupt(cond: Bool, id: Int, privilege: Int, delegators: List[Delegator]): Unit = {
-          interrupt += InterruptSpec(cond, id, privilege, delegators)
+          val iprio = PrivilegedParam.prioMap.getOrElse(id, 0)
+          assert(iprio != 0, "InterruptSpec: prio not found")
+          interrupt += InterruptSpec(cond, id, privilege, iprio, delegators)
         }
       }
 

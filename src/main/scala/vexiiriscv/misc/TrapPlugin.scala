@@ -120,6 +120,13 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
     }
   }
 
+  case class Interrupt(Width: Int) extends Bundle {
+    val id  = UInt(Width bits)
+    val iprio = UInt(Width bits)
+    val privilege = UInt(2 bits)
+    val valid = Bool()
+  }
+
   val logic = during setup new Area{
     val priv = host[PrivilegedPlugin]
     val cap = host[CsrAccessPlugin]
@@ -199,16 +206,32 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
         while (privilegs.nonEmpty) {
           val p = privilegs.head
           when(privilegeAllowInterrupts(p)) {
-            for (i <- csr.spec.interrupt
-                 if i.privilege <= p //EX : Machine timer interrupt can't go into supervisor mode
-                 if privilegs.tail.forall(e => i.delegators.exists(_.privilege == e))) { // EX : Supervisor timer need to have machine mode delegator
-              val delegUpOn = i.delegators.filter(_.privilege > p).map(_.enable).fold(True)(_ && _)
-              val delegDownOff = !i.delegators.filter(_.privilege <= p).map(_.enable).orR
-              when(i.cond && delegUpOn && delegDownOff) {
-                valid := True
-                code := i.id
-                targetPrivilege := p
-              }
+            val interrupts = csr.spec.interrupt.map { i =>
+              val int = Interrupt(CODE_WIDTH)
+              int.id  := i.id
+              // if i.privilege <= p // EX : Machine timer interrupt can't go into supervisor mode
+              // if privilegs.tail.forall(e => i.delegators.exists(_.privilege == e))) { // EX : Supervisor timer need to have machine mode delegator
+              // i.delegators.filter(_.privilege > p).map(_.enable).fold(True)(_ && _) // delegUpOn
+              // delegDownOff = !i.delegators.filter(_.privilege <= p).map(_.enable).orR // delegDownOff
+              int.valid := Bool(i.privilege <= p) &&
+                           Bool(privilegs.tail.forall(e => i.delegators.exists(_.privilege == e))) &&
+                           (i.delegators.filter(_.privilege > p).map(_.enable).fold(True)(_ && _)) &&
+                           (!i.delegators.filter(_.privilege <= p).map(_.enable).orR) &&
+                           i.cond
+              int.iprio := U(i.iprio)
+              int.privilege := U(i.privilege)
+              int
+            }
+
+            val result = RegNext(interrupts.reduceBalancedTree((a, b) => {
+              val takeA = !b.valid || (a.valid && ((a.privilege > b.privilege) || ((a.privilege === b.privilege) && (a.iprio < b.iprio))))
+              takeA ? a | b
+            }))
+
+            when (result.valid) {
+              valid := True
+              code  := result.id.asBits
+              targetPrivilege := p
             }
           }
           privilegs = privilegs.tail
@@ -682,4 +705,3 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
     initHold := host.list[InitService].map(_.initHold()).orR
   }
 }
-
