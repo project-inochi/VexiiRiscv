@@ -89,7 +89,7 @@ class SocConfig(){
   val macSg = ArrayBuffer[MacSgFiberSpec]()
   var withCpuCd = false
   var withAPlic = false
-  var axiLiteForce32 = true
+  var axiLiteForce32 = false
 
   def addOptions(parser: scopt.OptionParser[Unit]): Unit = {
     import parser._
@@ -341,7 +341,7 @@ class Soc(c : SocConfig) extends Component {
       val bus = slave(
         Axi4(
           Axi4Config(
-            addressWidth = 32,
+            addressWidth = 64,
             dataWidth = mainDataWidth,
             idWidth = 4
           )
