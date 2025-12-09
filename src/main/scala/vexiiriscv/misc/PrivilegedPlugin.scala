@@ -827,15 +827,15 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
 
         val iepNoFilter = !p.withInterrutpFilter generate new Area {
           def mapSie(supervisorCsr: Int, bitId: Int, reg: Bool, machineDeleg: Bool, sWrite: Boolean = true): Unit = {
-            api.read(reg && machineDeleg, supervisorCsr, bitId)
-            if (sWrite) api.writeWhen(reg, machineDeleg, supervisorCsr, bitId)
+            api.read(reg && machineDeleg, HostCsrFilter(supervisorCsr), bitId)
+            if (sWrite) api.writeWhen(reg, machineDeleg, HostCsrFilter(supervisorCsr), bitId)
           }
 
           mapSie(CSR.SIE, 9, ie.seie, m.ideleg.se)
           mapSie(CSR.SIE, 5, ie.stie, m.ideleg.st)
           mapSie(CSR.SIE, 1, ie.ssie, m.ideleg.ss)
 
-          api.read(ip.seipOr && m.ideleg.se, CSR.SIP, 9)
+          api.read(ip.seipOr && m.ideleg.se, HostCsrFilter(CSR.SIP), 9)
           mapSie(CSR.SIP, 1, ip.ssip, m.ideleg.ss)
         }
 
@@ -875,7 +875,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         api.write(ip.seipSoft, CSR.MIP, 9)
         api.read(ip.stipOr, CSR.MIP, 5)
         api.writeWhen(ip.stipSoft, !sstc.envcfg.enable, CSR.MIP, 5)
-        api.read(ip.stipOr && m.ideleg.st, CSR.SIP, 5)
+        api.read(ip.stipOr && m.ideleg.st, HostCsrFilter(CSR.SIP), 5)
         api.readWrite(ip.ssip, CSR.MIP, 1)
         api.readToWrite(ip.seipSoft, CSR.MIP, 9) //Avoid an external interrupt value to propagate to the soft external interrupt register.
 
@@ -892,7 +892,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         val topi = new Area {
           val interrupt = Global.CODE().assignDontCare()
           val priority = Mux(interrupt === B(0), B(0), B(1))
-          api.read(CSR.STOPI, 0 -> priority, 16 -> interrupt)
+          api.read(HostCsrFilter(CSR.STOPI), 0 -> priority, 16 -> interrupt)
         }
       }
 
@@ -976,7 +976,8 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         }
       }
 
-      def HostCsrFilter(id: Int, cond: Bool = True) = CsrCondFilter(id, privilege >= 0 && cond)
+      def HostCsrFilter(id: Int): Any = p.withHypervisor.mux(HostCsrFilter(id, True), id)
+      def HostCsrFilter(id: Int, cond: Bool): CsrCondFilter = CsrCondFilter(id, privilege >= 0 && cond)
       def GuestCsrFilter(id: Int, cond: Bool = True) = CsrCondFilter(id, privilege < 0 && cond)
     }
 
