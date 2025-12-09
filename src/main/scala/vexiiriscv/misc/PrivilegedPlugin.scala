@@ -204,6 +204,8 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
       val privilege = Reg(PrivilegeMode.TYPE()) init(PrivilegeMode.M)
       val withMachinePrivilege = privilege >= PrivilegeMode.M
       val withSupervisorPrivilege = privilege >= PrivilegeMode.S
+      val withVirtualSupervisorPrivilege = privilege >= PrivilegeMode.VS
+      val withHostPrivilege = privilege >= 0
 
       val hartRunning = RegInit(True).allowUnsetRegToAvoidLatch()
       val debugMode = !hartRunning
@@ -919,6 +921,13 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         spec.addInterrupt(h.ie.vseie && h.vip.vseip && h.ideleg.vse, id = 9, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
         spec.addInterrupt(h.ie.vstie && h.vip.vstip && h.ideleg.vst, id = 5, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
         spec.addInterrupt(h.ie.vssie && h.vip.vssip && h.ideleg.vss, id = 1, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
+
+        val topi = new Area {
+          val interrupt = Global.CODE().assignDontCare()
+          val priority = Mux(interrupt === B(0), B(0), B(1))
+          api.read(GuestCsrFilter(CSR.STOPI), 0 -> priority, 16 -> interrupt)
+          api.read(CSR.VSTOPI, 0 -> priority, 16 -> interrupt)
+        }
       }
 
       val time = p.withRdTime generate new Area {
