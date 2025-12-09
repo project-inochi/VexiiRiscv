@@ -698,13 +698,27 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
           readWrite(10 -> vse, 6 -> vst, 2 -> vss)
         }
 
+        val ie = new api.Csr(CSR.HIE) {
+          val vseie, vstie, vssie = RegInit(False)
+          readWrite(10 -> vseie, 6 -> vstie, 2 -> vssie)
+        }
+
         val vip = new api.Csr(CSR.HVIP) {
           val vseip, vstip, vssip = RegInit(False)
           readWrite(10 -> vseip, 6 -> vstip, 2 -> vssip)
         }
 
+        val ip = new api.Csr(CSR.HIP) {
+          read(10 -> vip.vseip, 6 -> vip.vstip)
+          readWrite(2 -> vip.vssip)
+        }
+
         val tval = crs.readWriteRam(CSR.HTVAL)
         val tinst = crs.readWriteRam(CSR.HTINST)
+
+        spec.addInterrupt(ie.vseie && vip.vseip && !ideleg.vse, id = 10, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
+        spec.addInterrupt(ie.vstie && vip.vstip && !ideleg.vst, id = 6, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
+        spec.addInterrupt(ie.vssie && vip.vssip && !ideleg.vss, id = 2, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
       }
 
       val s = p.withSupervisor generate new Area {
@@ -883,6 +897,28 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
       }
 
       val vs = p.withHypervisor generate new Area {
+        def mapVSie(guestCsr: Int, bitId: Int, reg: Bool, hypervisorDeleg: Bool, sWrite: Boolean = true): Unit = {
+          val guestFilter = GuestCsrFilter(guestCsr - 0x100)
+
+          api.read(reg && hypervisorDeleg, guestCsr, bitId)
+          api.read(reg && hypervisorDeleg, guestFilter, bitId)
+          if (sWrite) {
+            api.writeWhen(reg, hypervisorDeleg, guestCsr, bitId)
+            api.writeWhen(reg, hypervisorDeleg, guestFilter, bitId)
+          }
+        }
+
+        mapVSie(CSR.VSIE, 9, h.ie.vseie, h.ideleg.vse)
+        mapVSie(CSR.VSIE, 5, h.ie.vstie, h.ideleg.vst)
+        mapVSie(CSR.VSIE, 1, h.ie.vssie, h.ideleg.vss)
+
+        mapVSie(CSR.VSIP, 9, h.vip.vseip, h.ideleg.vse)
+        mapVSie(CSR.VSIP, 5, h.vip.vstip, h.ideleg.vst)
+        mapVSie(CSR.VSIP, 1, h.vip.vssip, h.ideleg.vss)
+
+        spec.addInterrupt(h.ie.vseie && h.vip.vseip && h.ideleg.vse, id = 9, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
+        spec.addInterrupt(h.ie.vstie && h.vip.vstip && h.ideleg.vst, id = 5, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
+        spec.addInterrupt(h.ie.vssie && h.vip.vssip && h.ideleg.vss, id = 1, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
       }
 
       val time = p.withRdTime generate new Area {
@@ -939,6 +975,9 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
           )
         }
       }
+
+      def HostCsrFilter(id: Int, cond: Bool = True) = CsrCondFilter(id, privilege >= 0 && cond)
+      def GuestCsrFilter(id: Int, cond: Bool = True) = CsrCondFilter(id, privilege < 0 && cond)
     }
 
     val defaultTrap = new Area {
