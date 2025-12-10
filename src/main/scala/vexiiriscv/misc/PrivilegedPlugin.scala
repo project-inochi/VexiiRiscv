@@ -980,6 +980,22 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
       }
 
       val vs = p.withHypervisor generate new Area {
+        val cause = new api.Csr(CSR.VSCAUSE) {
+          val interrupt = RegInit(False)
+          val code = Reg(CODE) init (0)
+          readWrite(XLEN - 1 -> interrupt, 0 -> code)
+        }
+
+        val status = new Area {
+          val sie, spie = RegInit(False)
+          val spp = RegInit(U"0")
+
+          api.read(CSR.VSSTATUS, XLEN - 1 -> m.status.sd)
+          api.readWrite(CSR.VSSTATUS, 8 -> spp, 5 -> spie, 1 -> sie)
+          if (XLEN.get == 64) api.read(CSR.VSSTATUS, 32 -> U"10")
+          cap.trapNextOnWrite += CsrListFilter(List(CSR.VSSTATUS))
+        }
+
         def mapVSie(guestCsr: Int, bitId: Int, reg: Bool, hypervisorDeleg: Bool, sWrite: Boolean = true): Unit = {
           val guestFilter = GuestCsrFilter(guestCsr - 0x100)
 
@@ -1009,6 +1025,10 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
           api.read(GuestCsrFilter(CSR.STOPI), 0 -> priority, 16 -> interrupt)
           api.read(CSR.VSTOPI, 0 -> priority, 16 -> interrupt)
         }
+
+        val tval = crs.readWriteRam(CSR.VSTVAL)
+        val epc = crs.readWriteRam(CSR.VSEPC)
+        val tvec = crs.readWriteRam(CSR.VSTVEC)
       }
 
       val time = p.withRdTime generate new Area {
@@ -1067,8 +1087,8 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
       }
 
       def HostCsrFilter(id: Int): Any = p.withHypervisor.mux(HostCsrFilter(id, True), id)
-      def HostCsrFilter(id: Int, cond: Bool): CsrCondFilter = CsrCondFilter(id, privilege >= 0 && cond)
-      def GuestCsrFilter(id: Int, cond: Bool = True) = CsrCondFilter(id, privilege < 0 && cond)
+      def HostCsrFilter(id: Int, cond: Bool): CsrCondFilter = CsrCondFilter(id, !PrivilegeMode.isGuest(privilege) && cond)
+      def GuestCsrFilter(id: Int, cond: Bool = True) = CsrCondFilter(id, PrivilegeMode.isGuest(privilege) && cond)
     }
 
     val defaultTrap = new Area {
