@@ -718,6 +718,49 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
           }
         }
 
+        val sstc = new Area {
+          val envcfg = new Area {
+            val enable = RegInit(False)
+            val allowUpdate = Bool(p.withRdTime && p.withSSTC)
+
+            if (XLEN.get == 32) {
+              api.read(enable, CSR.HENVCFGH, 31)
+              api.writeWhen(enable, allowUpdate, CSR.MENVCFGH, 31)
+            } else {
+              api.read(enable, CSR.HENVCFG, 63)
+              api.writeWhen(enable, allowUpdate, CSR.MENVCFG, 63)
+            }
+          }
+
+          val logic = (p.withRdTime && p.withSSTC) generate new Area {
+            val cmp = RegInit(U(64 bits, default -> true))
+            val ip = RegNext(timedelta.calibrated >= cmp)
+
+            val mcheck = mcounteren.tm
+            val hcheck = counteren.tm && envcfg.enable
+            val accessable =  withMachinePrivilege || (withSupervisorPrivilege && mcheck) || (withVirtualSupervisorPrivilege && mcheck && hcheck)
+
+            if (XLEN.get == 32) {
+              api.readWrite(cmp(31 downto 0), CSR.VSTIMECMP)
+              api.readWrite(cmp(63 downto 32), CSR.VSTIMECMPH)
+              api.allowCsr(CsrListFilter(Seq(CSR.VSTIMECMP, CSR.VSTIMECMPH)), accessable)
+
+              api.readWrite(cmp(31 downto 0), GuestCsrFilter(CSR.STIMECMP))
+              api.readWrite(cmp(63 downto 32), GuestCsrFilter(CSR.STIMECMP))
+              api.allowCsr(GuestCsrFilter(CSR.STIMECMP), accessable)
+              api.allowCsr(GuestCsrFilter(CSR.STIMECMPH), accessable)
+            } else {
+              api.readWrite(cmp, CSR.VSTIMECMP)
+              api.allowCsr(CSR.VSTIMECMP, accessable)
+
+              api.readWrite(cmp, GuestCsrFilter(CSR.STIMECMP))
+              api.allowCsr(GuestCsrFilter(CSR.STIMECMP), accessable)
+            }
+          }
+
+          val interrupt = if (p.withRdTime && p.withSSTC) logic.ip else False
+        }
+
         val edeleg = new api.Csr(CSR.HEDELEG) {
           val bp, eu, ipf, lpf, spf = RegInit(False)
           val mapping = mutable.LinkedHashMap(3 -> bp, 8 -> eu, 12 -> ipf, 13 -> lpf, 15 -> spf)
@@ -792,13 +835,13 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
             val accessable =  withMachinePrivilege || (mcounteren.tm && envcfg.enable)
 
             if (XLEN.get == 32) {
-              api.readWrite(cmp(31 downto 0), CSR.STIMECMP)
-              api.readWrite(cmp(63 downto 32), CSR.STIMECMPH)
-              api.allowCsr(CSR.STIMECMP, accessable)
-              api.allowCsr(CSR.STIMECMPH, accessable)
+              api.readWrite(cmp(31 downto 0), HostCsrFilter(CSR.STIMECMP))
+              api.readWrite(cmp(63 downto 32), HostCsrFilter(CSR.STIMECMPH))
+              api.allowCsr(HostCsrFilter(CSR.STIMECMP), accessable)
+              api.allowCsr(HostCsrFilter(CSR.STIMECMPH), accessable)
             } else {
-              api.readWrite(cmp, CSR.STIMECMP)
-              api.allowCsr(CSR.STIMECMP, accessable)
+              api.readWrite(cmp, HostCsrFilter(CSR.STIMECMP))
+              api.allowCsr(HostCsrFilter(CSR.STIMECMP), accessable)
             }
           }
 
