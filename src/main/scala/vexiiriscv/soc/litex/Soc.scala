@@ -235,7 +235,7 @@ class Soc(c : SocConfig) extends Component {
       bus.forceDataWidth(32)
 
       val clint = new TilelinkClintFiber()
-      clint.node at 0xF0010000l of bus
+      clint.node at 0x70010000l of bus
 
       for (vexii <- vexiis) {
         vexii.bind(clint)
@@ -246,7 +246,7 @@ class Soc(c : SocConfig) extends Component {
 
         val m = new Area {
           val intc = new TilelinkAPlicFiber(APlicDomainParam.root(param))
-          intc.node at 0xF0C00000l of bus
+          intc.node at 0x70C00000l of bus
 
           for (vexii <- vexiis) {
             vexii.bind(intc)
@@ -255,7 +255,7 @@ class Soc(c : SocConfig) extends Component {
 
         val s = withSupervisor generate new Area {
           val intc = new TilelinkAPlicFiber(APlicDomainParam.S(param))
-          intc.node at 0xF0E00000l of bus
+          intc.node at 0x70E00000l of bus
 
           m.intc.addChildCtrl(intc)
 
@@ -287,7 +287,7 @@ class Soc(c : SocConfig) extends Component {
 
         val m = new Area {
           val msi = TilelinkImsicTriggerFiber()
-          msi.node at 0xF1000000l of bus
+          msi.node at 0x71000000l of bus
 
           for (vexii <- vexiis) {
             vexii.bind(msi, 3)
@@ -296,7 +296,7 @@ class Soc(c : SocConfig) extends Component {
 
         val s = withSupervisor generate new Area {
           val msi = TilelinkImsicTriggerFiber()
-          msi.node at 0xF1200000l of bus
+          msi.node at 0x71200000l of bus
 
           for (vexii <- vexiis) {
             vexii.bind(msi, 1)
@@ -306,7 +306,7 @@ class Soc(c : SocConfig) extends Component {
 
       val plic = !withAPlic generate new Area {
         val intc = new TilelinkPlicFiber()
-        intc.node at 0xF0C00000l of bus
+        intc.node at 0x70C00000l of bus
 
         for (vexii <- vexiis) {
           vexii.bind(intc)
