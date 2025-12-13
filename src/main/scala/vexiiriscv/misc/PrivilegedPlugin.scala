@@ -780,7 +780,9 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         }
 
         val ip = new Area {
-          val vseip, vstip, vssip = RegInit(False)
+          val vstipSoft = RegInit(False)
+          val vstipOr = vstipSoft || Mux(sstc.envcfg.enable, sstc.interrupt, False)
+          val vseip, vssip = RegInit(False)
         }
 
         // vseip
@@ -788,8 +790,8 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         api.read(ip.vseip, CsrListFilter(List(CSR.MIP, CSR.HIP)), 10)
 
         // vstip
-        api.readWrite(ip.vstip, CSR.HVIP, 6)
-        api.read(ip.vstip, CsrListFilter(List(CSR.MIP, CSR.HIP)), 6)
+        api.readWrite(ip.vstipSoft, CSR.HVIP, 6)
+        api.read(ip.vstipOr, CsrListFilter(List(CSR.MIP, CSR.HIP)), 6)
 
         // vssip
         api.readWrite(ip.vssip, CsrListFilter(List(CSR.MIP, CSR.HVIP, CSR.HIP)), 2)
@@ -798,7 +800,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         val tinst = crs.readWriteRam(CSR.HTINST)
 
         spec.addInterrupt(ie.vseie && ip.vseip && !ideleg.vse, id = 10, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
-        spec.addInterrupt(ie.vstie && ip.vstip && !ideleg.vst, id = 6, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
+        spec.addInterrupt(ie.vstie && ip.vstipOr && !ideleg.vst, id = 6, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
         spec.addInterrupt(ie.vssie && ip.vssip && !ideleg.vss, id = 2, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
       }
 
@@ -994,11 +996,11 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         mapVSie(CSR.VSIE, 1, h.ie.vssie, h.ideleg.vss)
 
         mapVSie(CSR.VSIP, 9, h.ip.vseip, h.ideleg.vse)
-        mapVSie(CSR.VSIP, 5, h.ip.vstip, h.ideleg.vst)
+        mapVSie(CSR.VSIP, 5, h.ip.vstipOr, h.ideleg.vst, sWrite = false)
         mapVSie(CSR.VSIP, 1, h.ip.vssip, h.ideleg.vss)
 
         spec.addInterrupt(h.ie.vseie && h.ip.vseip && h.ideleg.vse, id = 9, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
-        spec.addInterrupt(h.ie.vstie && h.ip.vstip && h.ideleg.vst, id = 5, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
+        spec.addInterrupt(h.ie.vstie && h.ip.vstipOr && h.ideleg.vst, id = 5, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
         spec.addInterrupt(h.ie.vssie && h.ip.vssip && h.ideleg.vss, id = 1, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
 
         val topi = new Area {
