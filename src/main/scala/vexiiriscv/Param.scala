@@ -123,6 +123,7 @@ class ParamSimple() {
   var withDiv = false
   var withRva = false
   var withRvf = false
+  var withRvh = false
   var withRve = false
   var withRvcbm = false
   var withRvZknAes = false
@@ -504,6 +505,7 @@ class ParamSimple() {
     if (withRva) isa += "a"
     if (withRvf) isa += "f"
     if (withRvd) isa += "d"
+    if (withRvh) isa += "h"
     if (withRvc) isa += "c"
     if (withRvZba) isa += "Zba"
     if (withRvZbb) isa += "Zbb"
@@ -597,6 +599,7 @@ class ParamSimple() {
     opt[Unit]("with-aligner-buffer").unbounded() action { (v, c) => withAlignerBuffer = true }
     opt[Unit]("with-dispatcher-buffer") action { (v, c) => withDispatcherBuffer = true }
     opt[Unit]("with-supervisor") action { (v, c) => privParam.withSupervisor = true; privParam.withUser = true; withMmu = true }
+    opt[Unit]("with-hypervisor") action { (v, c) => withRvh = true; privParam.withHypervisor = true; privParam.withSupervisor = true; privParam.withUser = true; withMmu = true }
     opt[Unit]("with-user") action { (v, c) => privParam.withUser = true }
     opt[Unit]("without-mmu") action { (v, c) => withMmu = false }
     opt[Unit]("without-mul") action { (v, c) => withMul = false }
@@ -715,7 +718,7 @@ class ParamSimple() {
 
     val intWritebackAt = 2 //Alias for "trap at" as well
 
-    plugins += new riscv.RiscvPlugin(xlen, hartCount, rvf = withRvf, rvd = withRvd, rvc = withRvc, rve = withRve)
+    plugins += new riscv.RiscvPlugin(xlen, hartCount, rvf = withRvf, rvd = withRvd, rvc = withRvc, rvh = withRvh, rve = withRve)
     withMmu match {
       case false => plugins += new vexiiriscv.memory.StaticTranslationPlugin(physicalWidth)
       case true => plugins += new vexiiriscv.memory.MmuPlugin(
