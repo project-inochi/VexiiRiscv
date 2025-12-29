@@ -970,8 +970,6 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
           spec.addInterrupt(!m.ideleg.ss && vip.ssip && vie.ssie && ieShadow.ssie, id = 1, privilege = PrivilegeMode.S, delegators = List(Delegator(True, PrivilegeMode.M)))
         }
 
-        for ((id, enable) <- m.edeleg.mapping) spec.exception += ExceptionSpec(id, List(Delegator(enable, PrivilegeMode.M)))
-
         val topi = new Area {
           val interrupt = Global.CODE().assignDontCare()
           val priority = Mux(interrupt === B(0), B(0), B(1))
@@ -1045,6 +1043,16 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
             api.read(rdtime, HostCsrFilter(CSR.UTIME))
             api.allowCsr(HostCsrFilter(CSR.UTIME), accessable)
           }
+        }
+      }
+
+      val exception = p.withSupervisor generate new Area {
+        for ((id, enable) <- m.edeleg.mapping) {
+          var delegator = List(Delegator(enable, PrivilegeMode.M))
+
+          if (p.withHypervisor && h.edeleg.mapping.contains(id)) delegator = delegator ++ List(Delegator(h.edeleg.mapping(id), PrivilegeMode.S))
+
+          spec.exception += ExceptionSpec(id, delegator)
         }
       }
 
