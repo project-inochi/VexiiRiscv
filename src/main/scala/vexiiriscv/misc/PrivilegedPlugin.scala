@@ -770,11 +770,13 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         val ideleg = new api.Csr(CSR.HIDELEG) {
           val vst, vse, vss = RegInit(False)
           readWrite(10 -> vse, 6 -> vst, 2 -> vss)
+          api.readWrite(CSR.MIDELEG, 10 -> vse, 6 -> vst, 2 -> vss)
         }
 
         val ie = new api.Csr(CSR.HIE) {
           val vseie, vstie, vssie = RegInit(False)
           readWrite(10 -> vseie, 6 -> vstie, 2 -> vssie)
+          api.readWrite(CSR.MIE, 10 -> vseie, 6 -> vstie, 2 -> vssie)
         }
 
         val ip = new Area {
@@ -783,14 +785,14 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
 
         // vseip
         api.readWrite(ip.vseip, CSR.HVIP, 10)
-        api.read(ip.vseip, CSR.HIP, 10)
+        api.read(ip.vseip, CsrListFilter(List(CSR.MIP, CSR.HIP)), 10)
 
         // vstip
         api.readWrite(ip.vstip, CSR.HVIP, 6)
-        api.read(ip.vstip, CSR.HIP, 6)
+        api.read(ip.vstip, CsrListFilter(List(CSR.MIP, CSR.HIP)), 6)
 
         // vssip
-        api.readWrite(ip.vssip, CsrListFilter(List(CSR.HVIP, CSR.HIP)), 2)
+        api.readWrite(ip.vssip, CsrListFilter(List(CSR.MIP, CSR.HVIP, CSR.HIP)), 2)
 
         val tval = crs.readWriteRam(CSR.HTVAL)
         val tinst = crs.readWriteRam(CSR.HTINST)
