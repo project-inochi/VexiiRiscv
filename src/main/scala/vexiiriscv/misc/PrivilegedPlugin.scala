@@ -205,7 +205,8 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
       val withMachinePrivilege = privilege >= PrivilegeMode.M
       val withSupervisorPrivilege = privilege >= PrivilegeMode.S
       val withVirtualSupervisorPrivilege = privilege >= PrivilegeMode.VS
-      val withHostPrivilege = privilege >= 0
+      val withHostPrivilege = !PrivilegeMode.isGuest(privilege)
+      val withGuestPrivilege = PrivilegeMode.isGuest(privilege)
 
       val hartRunning = RegInit(True).allowUnsetRegToAvoidLatch()
       val debugMode = !hartRunning
@@ -745,16 +746,13 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
               api.readWrite(cmp(63 downto 32), CSR.VSTIMECMPH)
               api.allowCsr(CsrListFilter(Seq(CSR.VSTIMECMP, CSR.VSTIMECMPH)), accessable)
 
-              api.readWrite(cmp(31 downto 0), GuestCsrFilter(CSR.STIMECMP))
-              api.readWrite(cmp(63 downto 32), GuestCsrFilter(CSR.STIMECMP))
-              api.allowCsr(GuestCsrFilter(CSR.STIMECMP), accessable)
-              api.allowCsr(GuestCsrFilter(CSR.STIMECMPH), accessable)
+              api.remapWhen(CSR.STIMECMP, CSR.VSTIMECMP, withGuestPrivilege)
+              api.remapWhen(CSR.STIMECMPH, CSR.VSTIMECMPH, withGuestPrivilege)
             } else {
               api.readWrite(cmp, CSR.VSTIMECMP)
               api.allowCsr(CSR.VSTIMECMP, accessable)
 
-              api.readWrite(cmp, GuestCsrFilter(CSR.STIMECMP))
-              api.allowCsr(GuestCsrFilter(CSR.STIMECMP), accessable)
+              api.remapWhen(CSR.STIMECMP, CSR.VSTIMECMP, withGuestPrivilege)
             }
           }
 
@@ -995,23 +993,21 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         }
 
         def mapVSie(guestCsr: Int, bitId: Int, reg: Bool, hypervisorDeleg: Bool, sWrite: Boolean = true): Unit = {
-          val guestFilter = GuestCsrFilter(guestCsr - 0x100)
-
           api.read(reg && hypervisorDeleg, guestCsr, bitId)
-          api.read(reg && hypervisorDeleg, guestFilter, bitId)
           if (sWrite) {
             api.writeWhen(reg, hypervisorDeleg, guestCsr, bitId)
-            api.writeWhen(reg, hypervisorDeleg, guestFilter, bitId)
           }
         }
 
         mapVSie(CSR.VSIE, 9, h.ie.vseie, h.ideleg.vse)
         mapVSie(CSR.VSIE, 5, h.ie.vstie, h.ideleg.vst)
         mapVSie(CSR.VSIE, 1, h.ie.vssie, h.ideleg.vss)
+        api.remapWhen(CSR.SIE, CSR.VSIE, withGuestPrivilege)
 
         mapVSie(CSR.VSIP, 9, h.ip.vseip, h.ideleg.vse)
         mapVSie(CSR.VSIP, 5, h.ip.vstipOr, h.ideleg.vst, sWrite = false)
         mapVSie(CSR.VSIP, 1, h.ip.vssip, h.ideleg.vss)
+        api.remapWhen(CSR.SIP, CSR.VSIP, withGuestPrivilege)
 
         spec.addInterrupt(h.ie.vseie && h.ip.vseip && h.ideleg.vse, id = 9, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
         spec.addInterrupt(h.ie.vstie && h.ip.vstipOr && h.ideleg.vst, id = 5, privilege = PrivilegeMode.VS, delegators = List(Delegator(True, PrivilegeMode.M), Delegator(True, PrivilegeMode.S)))
@@ -1025,8 +1021,13 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
         }
 
         val tval = crs.readWriteRam(CSR.VSTVAL)
+        api.remapWhen(CSR.STVAL, CSR.VSTVAL, withGuestPrivilege)
+
         val epc = crs.readWriteRam(CSR.VSEPC)
+        api.remapWhen(CSR.SEPC, CSR.VSEPC, withGuestPrivilege)
+
         val tvec = crs.readWriteRam(CSR.VSTVEC)
+        api.remapWhen(CSR.STVEC, CSR.VSTVEC, withGuestPrivilege)
       }
 
       val time = p.withRdTime generate new Area {
