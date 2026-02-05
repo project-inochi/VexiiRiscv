@@ -11,7 +11,7 @@ import Global._
 import spinal.lib.misc.pipeline.{NodeBaseApi, Payload}
 import vexiiriscv.execute.{CsrAccessPlugin, CsrListFilter, CsrRamService}
 import vexiiriscv.memory.AddressTranslationPortUsage.{FETCH, LOAD_STORE}
-import vexiiriscv.misc.{PerformanceCounterService, PipelineBuilderPlugin, PrivilegedPlugin, TrapReason}
+import vexiiriscv.misc.{PerformanceCounterService, PipelineBuilderPlugin, PrivilegedPlugin, ThreadStatePlugin, TrapReason}
 import vexiiriscv.riscv.{CSR, PrivilegeMode}
 import vexiiriscv.riscv.Riscv._
 
@@ -159,6 +159,7 @@ class MmuPlugin(var spec : MmuSpec,
     val priv = host[PrivilegedPlugin]
     val csr = host[CsrAccessPlugin]
     val access = host[DBusAccessService]
+    val tsp = host[ThreadStatePlugin]
     val ram = host[CsrRamService]
     val pcs = host.get[PerformanceCounterService]
 
@@ -217,7 +218,7 @@ class MmuPlugin(var spec : MmuSpec,
     csr.writeCancel(CSR.SATP, satpModeWrite =/= 0 && satpModeWrite =/= spec.satpMode)
 
     csr.onDecode(CSR.SATP) {
-      when(priv.logic.harts(0).m.status.tvm && priv.getPrivilege(0) === 1) {
+      when(priv.logic.harts(0).m.status.tvm && tsp.isSupervisor(0)) {
         csr.bus.decode.doException()
       } otherwise {
         csr.bus.decode.doTrap(TrapReason.SFENCE_VMA)
@@ -262,9 +263,9 @@ class MmuPlugin(var spec : MmuSpec,
     }
 
     assert(HART_COUNT.get == 1)
-    val isMachine = priv.getPrivilege(0) === PrivilegeMode.M
-    val isSupervisor = priv.getPrivilege(0) === PrivilegeMode.S
-    val isUser = priv.getPrivilege(0) === PrivilegeMode.U
+    val isMachine = tsp.isMachine(0)
+    val isSupervisor = tsp.isSupervisor(0)
+    val isUser = tsp.isUSer(0)
     def mprv = priv.logic.harts(0).m.status.mprv
 
     api.fetchTranslationEnable := satp.mode === spec.satpMode

@@ -30,6 +30,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
     val ram = host[CsrRamPlugin]
     val priv = host[PrivilegedPlugin]
     val tp = host[TrapPlugin]
+    val tsp = host[ThreadStatePlugin]
     val csrRetainer = csr.csrLock()
     val ramCsrRetainer = ram.csrLock()
     val ramPortRetainer = ram.portLock()
@@ -151,7 +152,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
         case 32 => 32
         case 64 => 0
       }
-      val privValue = priv.getPrivilege(0)
+      val privValue = tsp.getPrivilege(0)
       val ofRead = CombInit(OF)
       if(withScountovf && priv.implementSupervisor) csr.read(CSR.SCOUNTOVF, id -> ofRead)
       ofRead clearWhen(!counter.mcounteren && !privValue(1))
@@ -324,7 +325,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
       val mok = addr.muxListDc(counters.list.map(e => e.counterId -> e.mcounteren))
       val sok = priv.p.withSupervisor.mux(addr.muxListDc(counters.list.map(e => e.counterId -> e.scounteren)), True)
       val vok = priv.p.withHypervisor.mux(addr.muxListDc(counters.list.map(e => e.counterId -> e.hcounteren)), True)
-      val privilege = priv.getPrivilege(csr.bus.decode.hartId)
+      val privilege = tsp.getPrivilege(csr.bus.decode.hartId)
       val privOk = ((privilege.asBits ^ B(1 << 2)) | (vok ## mok ## sok)).andR
       csr.onDecode(csrFilter){ //TODO test
         when(csr.bus.decode.address(9 downto 8) === PrivilegeMode.U){

@@ -1019,6 +1019,7 @@ class ParamSimple() {
     plugins += new CsrRamPlugin()
     if(withPerformanceCounters) plugins += new PerformanceCounterPlugin(additionalCounterCount = additionalPerformanceCounters)
     plugins += new CsrAccessPlugin(early0, writeBackKey =  if(lanes == 1) "lane0" else "lane1")
+    plugins += new ThreadStatePlugin()
     if(withIndirectCsr) plugins += new IndirectCsrPlugin(privParam.withSupervisor)
     plugins += new PrivilegedPlugin(privParam, withHartIdInput.mux(null, hartId until hartId+hartCount))
     plugins += new TrapPlugin(trapAt = intWritebackAt)

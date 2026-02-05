@@ -96,12 +96,6 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
   def implementUser = p.withUser
   def implementUserTrap = p.withUserTrap
 
-  def getPrivilege(hartId : UInt) : SInt = logic.harts.map(_.privilege).read(hartId)
-  def isMachine(hartId : UInt) : Bool = getPrivilege(hartId) === PrivilegeMode.M
-  def isSupervisor(hartId : UInt) : Bool = getPrivilege(hartId) === PrivilegeMode.S
-  def isUSer(hartId : UInt) : Bool = getPrivilege(hartId) === PrivilegeMode.U
-
-
   override def getCommitMask(hartId: Int): Bits = logic.harts(hartId).commitMask
 
   val misaIds = mutable.LinkedHashSet[Int]()
@@ -141,6 +135,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
     val tp = host[TrapPlugin]
     val ss = host[ScheduleService]
     val dpp = host[DecodePipelinePlugin]
+    val tsp = host[ThreadStatePlugin]
     val withRam = host.get[CsrRamService].nonEmpty
     val crs = withRam generate host[CsrRamService]
     val injs = host[InjectorService]
@@ -199,7 +194,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
 
       val api = cap.hart(hartId)
       val withFs = RVF || p.withSupervisor
-      val privilege = Reg(PrivilegeMode.TYPE()) init(PrivilegeMode.M)
+      val privilege = tsp.getPrivilege(hartId)
       val withMachinePrivilege = privilege >= PrivilegeMode.M
       val withSupervisorPrivilege = privilege >= PrivilegeMode.S
 

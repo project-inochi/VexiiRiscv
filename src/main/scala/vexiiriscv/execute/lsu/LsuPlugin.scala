@@ -14,7 +14,7 @@ import spinal.lib.system.tag.PmaRegion
 import vexiiriscv.decode.{Decode, DecoderService}
 import vexiiriscv.decode.Decode.UOP
 import vexiiriscv.memory.{AddressTranslationPortUsage, AddressTranslationReq, AddressTranslationService, DBusAccessService, PmaLoad, PmaLogic, PmaPort, PmaStore, PmpService}
-import vexiiriscv.misc.{AddressToMask, LsuTriggerService, PerformanceCounterService, PrivilegedPlugin, TrapArg, TrapReason, TrapService}
+import vexiiriscv.misc.{AddressToMask, LsuTriggerService, PerformanceCounterService, PrivilegedPlugin, ThreadStatePlugin, TrapArg, TrapReason, TrapService}
 import vexiiriscv.riscv.Riscv.{FLEN, LSLEN, XLEN}
 import vexiiriscv.riscv._
 import vexiiriscv.schedule.{DispatchPlugin, ScheduleService}
@@ -125,6 +125,7 @@ class LsuPlugin(var layer : LaneLayer,
     val ss = host[ScheduleService]
     val ds = host[DecoderService]
     val pp = host[PrivilegedPlugin]
+    val tsp = host[ThreadStatePlugin]
     val cap = host[CsrAccessPlugin]
     val pcs = host.get[PerformanceCounterService]
     val hp = host.get[PrefetcherPlugin]
@@ -220,7 +221,7 @@ class LsuPlugin(var layer : LaneLayer,
       def xenvcfg(priv : Int) = new Area{
         val at = 0x00A + priv * 0x100
         if(priv == PrivilegeMode.M) cap.allowCsr(at + 0x10) //Allow menvcfgh
-        val privLower = pp.getPrivilege(0) < priv
+        val privLower = tsp.getPrivilege(0) < priv
         val cbie = RegInit(B"00")
         val cbcfe = RegInit(B"0")
         invalIntoClean.setWhen(privLower && cbie === 1)

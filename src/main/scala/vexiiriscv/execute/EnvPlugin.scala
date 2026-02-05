@@ -4,7 +4,7 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.misc.plugin.FiberPlugin
 import spinal.lib.misc.pipeline._
-import vexiiriscv.misc.{PrivilegedPlugin, TrapReason, TrapService}
+import vexiiriscv.misc.{PrivilegedPlugin, ThreadStatePlugin, TrapReason, TrapService}
 import vexiiriscv.riscv.{CSR, PrivilegeMode, Rvi}
 import vexiiriscv._
 import vexiiriscv.Global._
@@ -29,6 +29,7 @@ class EnvPlugin(layer : LaneLayer,
     val sp = host[ReschedulePlugin]
     val ts = host[TrapService]
     val ps = host[PrivilegedPlugin]
+    val tsp = host[ThreadStatePlugin]
     val ioRetainer = retains(sp.elaborationLock, ts.trapLock)
     awaitBuild()
 
@@ -68,7 +69,7 @@ class EnvPlugin(layer : LaneLayer,
       trapPort.arg.assignDontCare()
       trapPort.laneAge := Execute.LANE_AGE
 
-      val privilege = ps.getPrivilege(HART_ID)
+      val privilege = tsp.getPrivilege(HART_ID)
       val xretPriv = PrivilegeMode(PrivilegeMode.isGuest(privilege), Decode.UOP(29 downto 28))
       val commit = False
 
@@ -83,7 +84,7 @@ class EnvPlugin(layer : LaneLayer,
           trapPort.code := B(privilege.resize(Global.CODE_WIDTH) | CSR.MCAUSE_ENUM.ECALL_USER)
         }
         is(EnvPluginOp.PRIV_RET) {
-          when(xretPriv <= ps.getPrivilege(HART_ID) && !retKo) {
+          when(xretPriv <= tsp.getPrivilege(HART_ID) && !retKo) {
             commit := True
             trapPort.exception := False
             trapPort.code := TrapReason.PRIV_RET

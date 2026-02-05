@@ -139,6 +139,7 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
     val pcs = host[PcService]
     val hp = host.get[HistoryPlugin]
     val ats = host[AddressTranslationService]
+    val tsp = host[ThreadStatePlugin]
     val withRam = host.get[CsrRamService].nonEmpty
     val crs = withRam generate host[CsrRamService]
     val invalidationLocks = retains(fl1p.map(_.invalidationRetainer).toList ++ lsu.map(_.invalidationRetainer))
@@ -161,6 +162,7 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
 
     val harts = for(hartId <- 0 until HART_COUNT) yield new Area{
       val csr = priv.logic.harts(hartId)
+      val ts = tsp.hart(hartId)
 
       // Used to read/write the CSR stored in RAM as mepc, mtvec, ... in the state machine
       val crsPorts = withRam generate new Area{
@@ -313,7 +315,7 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
               }
             }
           }
-          val targetPrivilege = csr.privilege.max(exceptionTargetPrivilegeUncapped)
+          val targetPrivilege = ts.privilege.max(exceptionTargetPrivilegeUncapped)
         }
 
         // Detect when an instruction which did a trap reach the commit point.
@@ -457,9 +459,9 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
                 when(!csr.debugMode) {
                   val doIt = False
                   when(pending.state.exception && exception.code === CSR.MCAUSE_ENUM.BREAKPOINT || triggerEbreak) {
-                    doIt setWhen(csr.privilege === PrivilegeMode.M && csr.debug.dcsr.ebreakm)
-                    if (priv.p.withUser) doIt setWhen (csr.privilege === PrivilegeMode.U && csr.debug.dcsr.ebreaku)
-                    if (priv.p.withSupervisor) doIt setWhen (csr.privilege === PrivilegeMode.S && csr.debug.dcsr.ebreaks)
+                    doIt setWhen(ts.privilege === PrivilegeMode.M && csr.debug.dcsr.ebreakm)
+                    if (priv.p.withUser) doIt setWhen (ts.privilege === PrivilegeMode.U && csr.debug.dcsr.ebreaku)
+                    if (priv.p.withSupervisor) doIt setWhen (ts.privilege === PrivilegeMode.S && csr.debug.dcsr.ebreaks)
                   }
                   doIt setWhen(buffer.trap.interrupt && csr.debug.doHalt)
                   when(doIt){
@@ -623,12 +625,12 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
             pcPort.valid := True
             pcPort.pc := U(readed).resized //PC RESIZED
 
-            csr.privilege := buffer.trap.targetPrivilege
+            ts.privilege := buffer.trap.targetPrivilege
             switch(buffer.trap.targetPrivilege) {
               is(PrivilegeMode.M) {
                 csr.m.status.mie := False
                 csr.m.status.mpie := csr.m.status.mie
-                if (priv.p.withUser) csr.m.status.mpp := csr.privilege(1 downto 0).asUInt
+                if (priv.p.withUser) csr.m.status.mpp := ts.privilege(1 downto 0).asUInt
 
                 csr.m.cause.code := buffer.trap.code
                 csr.m.cause.interrupt := buffer.trap.interrupt
@@ -636,7 +638,7 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
               priv.p.withSupervisor generate is(PrivilegeMode.S) {
                 csr.s.status.sie := False
                 csr.s.status.spie := csr.s.status.sie
-                if (priv.p.withUser) csr.s.status.spp := csr.privilege(0, 1 bits).asUInt
+                if (priv.p.withUser) csr.s.status.spp := ts.privilege(0, 1 bits).asUInt
 
                 csr.s.cause.code := buffer.trap.code
                 csr.s.cause.interrupt := buffer.trap.interrupt
@@ -667,12 +669,12 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
                 when(csr.debug.bus.haltReq) { csr.debug.dcsr.cause := 3 }
                 when(pending.state.exception && exception.code === CSR.MCAUSE_ENUM.BREAKPOINT) { csr.debug.dcsr.cause := 1 }
                 when(!pending.state.exception && exception.code === TrapReason.DEBUG_TRIGGER) { csr.debug.dcsr.cause := 2 }
-                csr.debug.dcsr.prv := csr.privilege
+                csr.debug.dcsr.prv := ts.privilege
               } otherwise {
                 csr.debug.bus.exception := pending.state.exception && exception.code =/= CSR.MCAUSE_ENUM.BREAKPOINT
                 csr.debug.bus.ebreak    := pending.state.exception && exception.code === CSR.MCAUSE_ENUM.BREAKPOINT
               }
-              csr.privilege := PrivilegeMode.M
+              ts.privilege := PrivilegeMode.M
               goto(RUNNING)
             }
 
@@ -686,7 +688,7 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
             RESUME.whenIsActive {
               pcPort.valid := True
               pcPort.pc := U(readed).resized //PC RESIZED
-              csr.privilege := csr.debug.dcsr.prv
+              ts.privilege := csr.debug.dcsr.prv
               csr.hartRunning := True
               csr.debug.bus.resume.rsp.valid := True
               goto(RUNNING)
@@ -709,7 +711,7 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
             pcPort.valid := True
             pcPort.pc := U(readed).resized //PC RESIZED
 
-            csr.privilege := pending.xret.targetPrivilege
+            ts.privilege := pending.xret.targetPrivilege
             csr.xretAwayFromMachine setWhen (pending.xret.targetPrivilege =/= PrivilegeMode.M)
             switch(pending.state.arg(2 downto 0)) {
               is(PrivilegeMode.M) {

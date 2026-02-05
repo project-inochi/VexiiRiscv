@@ -6,7 +6,7 @@ import spinal.lib.misc.pipeline.{NodeBaseApi, Payload}
 import spinal.lib.misc.plugin.FiberPlugin
 import vexiiriscv.Global
 import vexiiriscv.execute.{CsrAccessPlugin, CsrListFilter, CsrRamService}
-import vexiiriscv.misc.{PipelineBuilderPlugin, PrivilegedPlugin, TrapReason}
+import vexiiriscv.misc.{PipelineBuilderPlugin, PrivilegedPlugin, ThreadStatePlugin, TrapReason}
 import vexiiriscv.riscv.{CSR, Riscv}
 
 import scala.collection.mutable.ArrayBuffer
@@ -95,6 +95,7 @@ class PmpPlugin(val p : PmpParam) extends FiberPlugin with PmpService{
     val priv = host[PrivilegedPlugin]
     val csr = host[CsrAccessPlugin]
     val ram = host[CsrRamService]
+    val tsp = host[ThreadStatePlugin]
 
     val csrLock = retains(csr.csrLock, ram.csrLock)
     val buildBefore = retains(List(host[PipelineBuilderPlugin].elaborationLock))
@@ -185,7 +186,7 @@ class PmpPlugin(val p : PmpParam) extends FiberPlugin with PmpService{
     csrLock.release()
     portsLock.await()
 
-    val isMachine = priv.isMachine(0)
+    val isMachine = tsp.isMachine(0)
     val instructionShouldHit = !isMachine
     val dataShouldHit = !isMachine || priv.logic.harts(0).m.status.mprv && priv.logic.harts(0).m.status.mpp =/= 3
 
