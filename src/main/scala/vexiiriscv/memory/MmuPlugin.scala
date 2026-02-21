@@ -264,14 +264,39 @@ class MmuPlugin(var spec : MmuSpec,
       val sum  = RegInit(False)
     }
 
+    val vsatp = new Area {
+      val mode = Reg(Bits(satp.modeWidth bits)) init(0)
+      val asid = Reg(Bits(asidWidth bits)) init(0)
+      val ppn =  Reg(UInt(satp.ppnWidth bits))  init(0)
+    }
+    val vsstatus = new Area{
+      val mxr  = RegInit(False)
+      val sum  = RegInit(False)
+    }
+
     for(offset <- List(CSR.MSTATUS, CSR.SSTATUS)) csr.readWrite(offset, 19 -> status.mxr, 18 -> status.sum)
+    csr.readWrite(CSR.VSSTATUS, 19 -> vsstatus.mxr, 18 -> vsstatus.sum)
 
     csr.readWrite(CSR.SATP, satp.modeOffset -> satp.mode, satp.asidOffset -> satp.asid, 0 -> satp.ppn)
     val satpModeWrite = csr.bus.write.bits(satp.modeOffset, satp.modeWidth bits)
     csr.writeCancel(CSR.SATP, satpModeWrite =/= 0 && satpModeWrite =/= spec.satpMode)
 
+    csr.readWrite(CSR.VSATP, satp.modeOffset -> vsatp.mode, satp.asidOffset -> vsatp.asid, 0 -> vsatp.ppn)
+    val vsatpModeWrite = csr.bus.write.bits(satp.modeOffset, satp.modeWidth bits)
+    csr.writeCancel(CSR.VSATP, vsatpModeWrite =/= 0 && vsatpModeWrite =/= spec.satpMode)
+
+    csr.remapWhen(CSR.SATP, CSR.VSATP, PrivilegeMode.isGuest(priv.getPrivilege(0)))
+
     csr.onDecode(CSR.SATP) {
-      when(priv.logic.harts(0).m.status.tvm && priv.getPrivilege(0) === 1) {
+      when(priv.logic.harts(0).m.status.tvm && priv.getPrivilege(0) === PrivilegeMode.S) {
+        csr.bus.decode.doException()
+      } otherwise {
+        csr.bus.decode.doTrap(TrapReason.SFENCE_VMA)
+      }
+    }
+
+    csr.onDecode(CSR.VSATP) {
+      when(priv.logic.harts(0).h.status.vtvm && priv.getPrivilege(0) === PrivilegeMode.VS) {
         csr.bus.decode.doException()
       } otherwise {
         csr.bus.decode.doTrap(TrapReason.SFENCE_VMA)
@@ -295,13 +320,13 @@ class MmuPlugin(var spec : MmuSpec,
     val isUser = priv.getPrivilege(0) === PrivilegeMode.U
     def mprv = priv.logic.harts(0).m.status.mprv
 
-    api.fetchTranslationEnable := satp.mode === spec.satpMode
+    api.fetchTranslationEnable := Mux(PrivilegeMode.isGuest(priv.getPrivilege(0)), vsatp.mode === spec.satpMode, satp.mode === spec.satpMode)
     api.fetchTranslationEnable clearWhen(isMachine)
 
-    api.lsuTranslationEnable := satp.mode === spec.satpMode
-    api.lsuTranslationEnable clearWhen(!mprv && isMachine)
+    api.lsuTranslationEnable := Mux(PrivilegeMode.isGuest(priv.getPrivilege(0)) || (mprv && priv.logic.harts(0).m.status.mpv),
+                                    vsatp.mode === spec.satpMode, satp.mode === spec.satpMode)
     when(isMachine) {
-      api.lsuTranslationEnable clearWhen (!mprv || priv.logic.harts(0).m.status.mpp === 3)
+      api.lsuTranslationEnable clearWhen (!mprv || priv.logic.harts(0).m.status.mpp === PrivilegeMode.M)
     }
 
 
@@ -317,7 +342,7 @@ class MmuPlugin(var spec : MmuSpec,
           readStage(sl.keys.ENTRIES)(wayId) := way.readAsync(readAddress)
           hitsStage(sl.keys.HITS_PRE_VALID)(wayId) := hitsStage(sl.keys.ENTRIES)(wayId).hit(hitsStage(ps.req.PRE_ADDRESS))
           ctrlStage(sl.keys.HITS)(wayId) := ctrlStage(sl.keys.HITS_PRE_VALID)(wayId) && ctrlStage(sl.keys.ENTRIES)(wayId).valid &&
-              (ctrlStage(sl.keys.ENTRIES)(wayId).guest === (ctrlStage(ps.req.FORCE_GUEST) || PrivilegeMode.isGuest(priv.getPrivilege(0))))
+              (ctrlStage(sl.keys.ENTRIES)(wayId).guest === (ctrlStage(ps.req.FORCE_GUEST) || PrivilegeMode.isGuest(priv.getPrivilege(0))) || (mprv && priv.logic.harts(0).m.status.mpv))
         }
       }
 
@@ -347,14 +372,17 @@ class MmuPlugin(var spec : MmuSpec,
         import ps.rsp.keys._
         when(requireMmuLockup) {
           val allow_execute = lineAllowExecute && !(lineAllowUser && isSupervisor)
-          val allow_read    = lineAllowRead || status.mxr && lineAllowExecute
+          val allow_read    = lineAllowRead || (lineIsGuest.mux(vsstatus.mxr, False) || status.mxr) && lineAllowExecute
           val allow_write   = lineAllowWrite
 
           HAZARD        := False
           REFILL        := !hit
           TRANSLATED    := lineTranslated
-          PAGE_FAULT    := (lineAllowUser && isSupervisor && !status.sum) || (!lineAllowUser && isUser) || Mux(ps.req.LOAD, !allow_read, False) ||
-          Mux(ps.req.STORE, !allow_write, False) || Mux(ps.req.EXECUTE, !allow_execute, False)
+          PAGE_FAULT    := (lineAllowUser && isSupervisor && lineIsGuest.mux(!vsstatus.sum, !status.sum)) ||
+                            (!lineAllowUser && isUser) ||
+                            Mux(ps.req.LOAD, !allow_read, False) ||
+                            Mux(ps.req.STORE, !allow_write, False) ||
+                            Mux(ps.req.EXECUTE, !allow_execute, False)
           ACCESS_FAULT  := False
         } otherwise {
           HAZARD        := False
@@ -402,7 +430,7 @@ class MmuPlugin(var spec : MmuSpec,
           storageOhReg := UIntToOh(arbiter.io.output.storageId)
           storageEnable := arbiter.io.output.storageEnable
           virtual := arbiter.io.output.address
-          load.address := (satp.ppn @@ spec.levels.last.vpn(arbiter.io.output.address) @@ U(0, log2Up(spec.entryBytes) bits)).resized
+          load.address := (Mux(arbiter.io.output.guest, vsatp.ppn, satp.ppn) @@ spec.levels.last.vpn(arbiter.io.output.address) @@ U(0, log2Up(spec.entryBytes) bits)).resized
           isTwoStage := arbiter.io.output.guest
           arbiter.io.output.ready := True
           goto(CMD(spec.levels.size - 1))
