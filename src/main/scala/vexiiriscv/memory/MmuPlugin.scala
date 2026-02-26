@@ -350,6 +350,8 @@ class MmuPlugin(var spec : MmuSpec,
       val ctrl = new Area{
         import ctrlStage._
 
+        val nominalSupervisor = ps.req.FORCE_GUEST && priv.logic.harts(0).h.status.spvp
+        val nominalUser = ps.req.FORCE_GUEST && !priv.logic.harts(0).h.status.spvp
         val hits = Cat(storage.sl.map(s => ctrlStage(s.keys.HITS)))
         val entries = storage.sl.flatMap(s => ctrlStage(s.keys.ENTRIES))
         val hit = hits.orR
@@ -364,22 +366,23 @@ class MmuPlugin(var spec : MmuSpec,
         val lineIsGuest      = entriesMux(_.guest)
 
         val requireMmuLockup  = CombInit(ps.usage match {
-          case LOAD_STORE => api.lsuTranslationEnable
+          case LOAD_STORE => api.lsuTranslationEnable || (ps.req.FORCE_GUEST && vsatp.mode === spec.satpMode)
           case FETCH => api.fetchTranslationEnable
         })
         requireMmuLockup clearWhen(ps.req.FORCE_PHYSICAL)
 
         import ps.rsp.keys._
         when(requireMmuLockup) {
-          val allow_execute = lineAllowExecute && !(lineAllowUser && isSupervisor)
+          val allow_execute = lineAllowExecute && !(lineAllowUser && (isSupervisor || nominalSupervisor))
           val allow_read    = lineAllowRead || (lineIsGuest.mux(vsstatus.mxr, False) || status.mxr) && lineAllowExecute
           val allow_write   = lineAllowWrite
 
           HAZARD        := False
           REFILL        := !hit
           TRANSLATED    := lineTranslated
-          PAGE_FAULT    := (lineAllowUser && isSupervisor && lineIsGuest.mux(!vsstatus.sum, !status.sum)) ||
-                            (!lineAllowUser && isUser) ||
+          PAGE_FAULT    := (lineAllowUser && isSupervisor && !nominalUser && lineIsGuest.mux(!vsstatus.sum, !status.sum)) ||
+                            (lineAllowUser && nominalSupervisor && lineIsGuest.mux(!vsstatus.sum, True)) ||
+                            (!lineAllowUser && (isUser || nominalUser)) ||
                             Mux(ps.req.LOAD, !allow_read, False) ||
                             Mux(ps.req.STORE, !allow_write, False) ||
                             Mux(ps.req.EXECUTE, !allow_execute, False)
