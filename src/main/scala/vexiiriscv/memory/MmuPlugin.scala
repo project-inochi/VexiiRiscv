@@ -137,7 +137,7 @@ class MmuTlbStorage(
     val allocId = Counter(slp.ways)
 
     val keys = new Area {
-      setName(s"MMU_L${e.id}")
+      // setName(s"MMU_L${e.id}")
       val ENTRIES = Payload(Vec.fill(slp.ways)(newEntry()))
       val HITS_PRE_VALID = Payload(Bits(slp.ways bits))
       val HITS = Payload(Bits(slp.ways bits))
@@ -366,7 +366,7 @@ class MmuPlugin(var spec : MmuSpec,
         val lineIsGuest      = entriesMux(_.guest)
 
         val requireMmuLockup  = CombInit(ps.usage match {
-          case LOAD_STORE => api.lsuTranslationEnable || (ps.req.FORCE_GUEST && vsatp.mode === spec.satpMode)
+          case LOAD_STORE => ps.req.FORCE_GUEST.mux(vsatp.mode === spec.satpMode, api.lsuTranslationEnable)
           case FETCH => api.fetchTranslationEnable
         })
         requireMmuLockup clearWhen(ps.req.FORCE_PHYSICAL)

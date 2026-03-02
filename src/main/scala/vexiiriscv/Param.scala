@@ -1001,10 +1001,10 @@ class ParamSimple() {
     }
     if(lsuL1Enable){
       plugins += new LsuPlugin(
-        pmaAt = 2,
-        triggerAt = 2,
-        ctrlAt = 3,
-        wbAt = 3,
+        pmaAt = 1 + 1,
+        triggerAt = 1 + 1,
+        ctrlAt = 2 + 1,
+        wbAt = 2 + 1,
         layer = early0,
         withRva = withRva,
         storeRs2At = storeRs2Late.mux(2, 0),
