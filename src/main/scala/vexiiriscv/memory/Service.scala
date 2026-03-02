@@ -27,6 +27,8 @@ case class AddressTranslationRefillCmd(storageWidth : Int) extends Bundle{
 case class AddressTranslationRefillRsp() extends Bundle{
   val pageFault, accessFault, guestFault = Bool()
 
+  val bypass = Bool()
+
   val ae_ptw = Bool()
   val ae_final = Bool()
 
@@ -108,7 +110,7 @@ case class AddressTranslationReq(
 
 class AddressTranslationRsp(s : AddressTranslationService, val wayCount : Int) extends Area {
   val keys = new Area {
-    setName("MMU")
+    // setName("MMU")
     val TRANSLATED = Payload(PHYSICAL_ADDRESS)
     val HAZARD = Payload(Bool())
     val REFILL = Payload(Bool())
