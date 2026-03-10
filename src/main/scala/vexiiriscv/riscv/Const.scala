@@ -202,7 +202,7 @@ object CSR {
   def HVIEN       = 0x608 // Hypervisor virtual interrupt enables.
   def HVICTL      = 0x609 // Hypervisor virtual interrupt control.
   def HEDELEGH    = 0x612 // HRW Upper 32 bits of hedeleg, RV32 only.
-  def HiDELEGH    = 0x613 // HRW Upper 32 bits of hideleg, RV32 only.
+  def HIDELEGH    = 0x613 // HRW Upper 32 bits of hideleg, RV32 only.
   def HVIENH      = 0x618 // HRW Upper 32 bits of hvien, RV32 only.
   def HTVAL       = 0x643 // HRW Hypervisor trap value.
   def HIP         = 0x644 // HRW Hypervisor interrupt pending.
@@ -236,9 +236,9 @@ object CSR {
   val VSIREG      = 0x251
   val VSIREG2     = 0x252
   val VSIREG3     = 0x253
-  val VSIREG4     = 0x254
-  val VSIREG5     = 0x255
-  val VSIREG6     = 0x256
+  val VSIREG4     = 0x255
+  val VSIREG5     = 0x256
+  val VSIREG6     = 0x257
   val VSTIMECMP   = 0x24D
   val VSTIMECMPH  = 0x25D
   val VSTOPEI     = 0x25C
