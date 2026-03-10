@@ -577,7 +577,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
           val gva = p.withHypervisor generate RegInit(False)
 
           if (RVF) {
-            fpuEnable(hartId) setWhen (fs =/= 0 && p.withHypervisor.mux(withHostPrivilege, True))
+            fpuEnable(hartId) setWhen (fs =/= 0 && p.withHypervisor.mux(withHostPrivilege, False))
             when(withHostPrivilege && host.list[FpuDirtyService].map(_.gotDirty()).orR){
               fs := 3
             }
@@ -995,9 +995,10 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
           val sd = False
 
           if (RVF) {
-            fpuEnable(hartId) setWhen (withGuestPrivilege && fs =/= 0)
+            fpuEnable(hartId) setWhen (withGuestPrivilege && fs =/= 0 && m.status.fs =/= 0)
             when(withGuestPrivilege && host.list[FpuDirtyService].map(_.gotDirty()).orR){
               fs := 3
+              m.status.fs := 3
             }
           }
 
