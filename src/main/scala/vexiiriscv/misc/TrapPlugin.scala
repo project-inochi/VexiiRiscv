@@ -729,11 +729,7 @@ class TrapPlugin(val trapAt : Int) extends FiberPlugin with TrapService {
 
             when(crsPorts.write.ready) {
               if (priv.p.withHypervisor) {
-                when(!PrivilegeMode.isGuest(buffer.trap.targetPrivilege)) {
-                  goto(TRAP_HTVAL)
-                } otherwise {
-                  goto(TRAP_EPC)
-                }
+                goto(TRAP_HTVAL)
               } else {
                 goto(TRAP_EPC)
               }
