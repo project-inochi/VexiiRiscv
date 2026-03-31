@@ -47,6 +47,7 @@ class TilelinkVexiiRiscvFiber(val plugins : ArrayBuffer[Hostable]) extends Area 
       val rdtime = p.p.withRdTime generate UInt(64 bits)
       val mmsi = p.p.withImsic generate Bits(p.p.imsicInterrupts - 1 bits)
       val smsi = (p.p.withImsic && p.p.withSupervisor) generate Bits(p.p.imsicInterrupts - 1 bits)
+      val vsmsi = (p.p.withImsic && p.p.withSupervisor) generate Vec.fill(p.p.guestExternalInterruptFiles)(Bits(p.p.imsicInterrupts - 1 bits))
     }
   }
 
@@ -91,10 +92,13 @@ class TilelinkVexiiRiscvFiber(val plugins : ArrayBuffer[Hostable]) extends Area 
       val pp = priv.plugin
       val intIdBase = pp.hartIds(0)
       val intNum = pp.p.imsicInterrupts
+      val sourceIds = 1 until intNum
+      val guestIds = 1 to pp.p.guestExternalInterruptFiles
 
       mode match {
-        case PrivilegeMode.M => priv.mmsi := msi.addImsicFileinfo(ImsicFileInfo(intIdBase, 1 until intNum))
-        case PrivilegeMode.S => priv.smsi := msi.addImsicFileinfo(ImsicFileInfo(intIdBase, 1 until intNum))
+        case PrivilegeMode.M => priv.mmsi := msi.addImsicFileinfo(ImsicFileInfo(intIdBase, sourceIds))
+        case PrivilegeMode.S => priv.smsi := msi.addImsicFileinfo(ImsicFileInfo(intIdBase, sourceIds))
+        case PrivilegeMode.VS => priv.vsmsi := Vec(guestIds.map(geid => msi.addImsicFileinfo(ImsicFileInfo(intIdBase, geid, sourceIds))))
       }
     }
   }
@@ -136,6 +140,7 @@ class TilelinkVexiiRiscvFiber(val plugins : ArrayBuffer[Hostable]) extends Area 
         if (p.p.withImsic) {
           hart.m.imsic.triggers := priv.get.mmsi
           if (p.p.withSupervisor) hart.s.imsic.triggers := priv.get.smsi
+          if (p.p.withHypervisor && p.p.guestExternalInterruptFiles > 0) hart.h.imsic.triggers := priv.get.vsmsi
         }
       }
       case _ =>

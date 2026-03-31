@@ -185,6 +185,7 @@ class Soc(c : SocConfig) extends Component {
     val mainDataWidth = vexiiParam.memDataWidth
     val withCoherency = vexiiParam.lsuL1Coherency
     val withSupervisor = vexiiParam.privParam.withSupervisor
+    val withHypervisor = vexiiParam.privParam.withHypervisor
     val vexiis = for (hartId <- 0 until cpuCount) yield new TilelinkVexiiRiscvFiber(vexiiParam.plugins(hartId))
     for (vexii <- vexiis) {
       if (vexiiParam.fetchL1Enable) vexii.iBus.setDownConnection { (down, up) =>
@@ -316,6 +317,7 @@ class Soc(c : SocConfig) extends Component {
 
           for (vexii <- vexiis) {
             vexii.bind(msi, 1)
+            if (withHypervisor) vexii.bind(msi, -3)
           }
         }
       }
