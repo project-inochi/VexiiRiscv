@@ -460,8 +460,10 @@ class LsuL1Plugin(val lane : ExecuteLaneService,
         bus.read.rsp.ready := True
         when(bus.read.rsp.valid) {
           assert(reservation.win)
-          when(rspWithData) {
-            wordIndex := wordIndex + 1
+          if(memWordPerLine != 1) {
+            when(rspWithData) {
+              wordIndex := wordIndex + 1
+            }
           }
           when(wordIndex === wordIndex.maxValue || !rspWithData) {
             hadError := False
@@ -604,7 +606,9 @@ class LsuL1Plugin(val lane : ExecuteLaneService,
         slotRead.wordIndex := wordIndex
         slotRead.way := way
         slotRead.last := wordIndex === wordIndex.maxValue
-        wordIndex := wordIndex + U(slotRead.valid)
+        if(memWordPerLine != 1) {
+          wordIndex := wordIndex + U(slotRead.valid)
+        }
         when(slotRead.valid && slotRead.last) {
           slots.onMask(arbiter.oh) {
             _.readCmdDone := True
@@ -675,7 +679,9 @@ class LsuL1Plugin(val lane : ExecuteLaneService,
           last setWhen (!bufferRead.coherency.dirty)
           bufferRead.coherency := slots.map(_.coherency).read(arbiter.sel)
         }
-        wordIndex := wordIndex + U(bufferRead.fire && withCoherency.mux(bufferRead.coherency.dirty, True))
+        if(memWordPerLine != 1) {
+          wordIndex := wordIndex + U(bufferRead.fire && withCoherency.mux(bufferRead.coherency.dirty, True))
+        }
         when(bufferRead.fire && last) {
           slots.onMask(arbiter.oh)(_.writeCmdDone := True)
           arbiter.lock := 0
