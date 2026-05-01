@@ -26,7 +26,7 @@ import vexiiriscv.execute.lsu.LsuL1.{HAZARD}
 import scala.collection.mutable.ArrayBuffer
 
 object LsuL1CmdOpcode extends SpinalEnum{
-  val LSU, ACCESS, STORE_BUFFER, FLUSH, PREFETCH = newElement()
+  val LSU, ACCESS, UPDATE, STORE_BUFFER, FLUSH, PREFETCH = newElement()
 }
 
 case class LsuL1Cmd() extends Bundle {
@@ -299,6 +299,7 @@ class LsuPlugin(var layer : LaneLayer,
     accessRetainer.await()
     val l1 = LsuL1
     val FROM_ACCESS = Payload(Bool())
+    val FROM_UPDATE = Payload(Bool())
     val FROM_LSU = Payload(Bool())
     val FROM_WB = Payload(Bool())
     val FORCE_PHYSICAL = Payload(Bool())
@@ -390,6 +391,11 @@ class LsuPlugin(var layer : LaneLayer,
       val empty = slots.map(!_.valid).andR
     }
 
+    val casBuffer = dbusUpdates.nonEmpty generate new Area {
+      val expected = B(0, XLEN bits)
+      val data = Reg(B(0, XLEN bits)).allowUnsetRegToAvoidLatch
+    }
+
     invalidationRetainer.await()
     // Can flush the whole data cache when no memory coherency is implemented. This is used by the fence.i instruction.
     val flusher = !l1.coherency generate new StateMachine {
@@ -449,7 +455,7 @@ class LsuPlugin(var layer : LaneLayer,
 
     // Collect the different request and interface them with the L1 cache as well as the MMU
     val onAddress0 = new elp.Execute(addressAt){
-      FORCE_PHYSICAL := FROM_ACCESS || FROM_WB
+      FORCE_PHYSICAL := FROM_ACCESS || FROM_WB || FROM_UPDATE
       val LOAD_MMU = insert(LOAD || CLEAN || INVALIDATE)
       val request = AddressTranslationReq(
         PRE_ADDRESS    = l1.MIXED_ADDRESS,
@@ -516,6 +522,34 @@ class LsuPlugin(var layer : LaneLayer,
         port.cas := False
         port.op := LsuL1CmdOpcode.ACCESS
         port.storeId := 0
+
+        host[DispatchPlugin].haltDispatchWhen(sbWaiter)
+      }
+
+      val update = dbusUpdates.nonEmpty generate new Area {
+        assert(dbusUpdates.size == 1)
+        val waiter = new L1Waiter
+        val sbWaiter = withStoreBuffer.mux(RegInit(False) clearWhen(storeBuffer.empty), False)
+        val cmd = dbusUpdates.head.cmd
+        val port = ports.addRet(Stream(LsuL1Cmd()))
+        port.arbitrationFrom(cmd.haltWhen(waiter.valid || sbWaiter))
+        port.address := cmd.address.resized
+        port.size := cmd.size
+        port.load := !cmd.cas
+        port.store := True
+        port.execute := False
+        port.atomic := False
+        port.clean := False
+        port.invalidate := False
+        port.guest := False
+        port.cas := cmd.cas
+        port.op := LsuL1CmdOpcode.UPDATE
+        port.storeId := 0
+
+        when(cmd.fire) {
+          casBuffer.expected := cmd.expected
+          casBuffer.data     := cmd.data
+        }
 
         host[DispatchPlugin].haltDispatchWhen(sbWaiter)
       }
@@ -601,6 +635,7 @@ class LsuPlugin(var layer : LaneLayer,
       l1.CAS := arbiter.io.output.cas
       Decode.STORE_ID := arbiter.io.output.storeId
       FROM_ACCESS := arbiter.io.output.op === LsuL1CmdOpcode.ACCESS
+      FROM_UPDATE := arbiter.io.output.op === LsuL1CmdOpcode.UPDATE
       FROM_WB := arbiter.io.output.op === LsuL1CmdOpcode.STORE_BUFFER
       FROM_LSU := arbiter.io.output.op === LsuL1CmdOpcode.LSU
       FROM_PREFETCH := arbiter.io.output.op === LsuL1CmdOpcode.PREFETCH
@@ -608,8 +643,13 @@ class LsuPlugin(var layer : LaneLayer,
         bypass(FENCE) := False
       }
       l1.CAS_DATA := B(0)
-      if (withZacas) when(FROM_LSU && l1.CAS) {
-        l1.CAS_DATA := up(elp(IntRegFile, RD_READ))
+      when(l1.CAS) {
+        if(withZacas) when(FROM_LSU) {
+          l1.CAS_DATA := up(elp(IntRegFile, RD_READ))
+        }
+        if(dbusUpdates.nonEmpty) when(FROM_UPDATE) {
+          l1.CAS_DATA := casBuffer.expected.resized
+        }
       }
       if(withStoreBuffer) SB_PTR := storeBuffer.pop.ptr
       val SB_DATA = withStoreBuffer generate insert(storeBuffer.pop.op.data)
@@ -638,6 +678,8 @@ class LsuPlugin(var layer : LaneLayer,
         portSpec = translationPortParameter,
         storageSpec = shadowTranslationStorage
       )
+
+      val CAS_DATA = dbusUpdates.nonEmpty generate insert(casBuffer.data)
     }
     val stpk = pp.implementHypervisor.mux(onAddress1.translationPort.keys, onAddress0.translationPort.keys)
 
@@ -648,7 +690,7 @@ class LsuPlugin(var layer : LaneLayer,
     val pmpPort = ps.createPmpPort(
       nodes = List.tabulate(ctrlAt+1)(elp.execute(_).down),
       physicalAddress = stpk.TRANSLATED,
-      forceCheck = _(FROM_ACCESS),
+      forceCheck = e => e(FROM_ACCESS) || e(FROM_UPDATE),
       read = e => e(l1.LOAD) || (e(l1.EXECUTE) && e(l1.GUEST)),
       write = _(l1.STORE),
       execute = e => e(l1.EXECUTE) && e(l1.GUEST),
@@ -684,7 +726,7 @@ class LsuPlugin(var layer : LaneLayer,
 
       val CACHED_RSP = insert(cached.rsp)
       val IO_RSP = insert(io.rsp)
-      IO_RSP.fault.setWhen(l1.ATOMIC || FROM_ACCESS)
+      IO_RSP.fault.setWhen(l1.ATOMIC || FROM_ACCESS || FROM_UPDATE)
       val IO = insert(CACHED_RSP.fault && !IO_RSP.fault && !FENCE && !FROM_PREFETCH)
       val FROM_LSU_MSB_FAILED = insert(FROM_LSU && srcp.ADD_SUB.dropLow(Global.MIXED_WIDTH).asBools.map(_ =/= tpk.ADDRESS_EXTENSION).orR)
       MMU_PAGE_FAULT := tpk.PAGE_FAULT
@@ -704,6 +746,9 @@ class LsuPlugin(var layer : LaneLayer,
       writeData(0, XLEN bits) := up(elp(IntRegFile, riscv.RS2))
       if(Riscv.withFpu) when(FLOAT){
         writeData(0, FLEN bits) := up(elp(FloatRegFile, riscv.RS2))
+      }
+      if(dbusUpdates.nonEmpty) when(FROM_UPDATE) {
+        writeData(0, XLEN bits) := up(onAddress1.CAS_DATA)
       }
 
       val scMiss = Bool() // (Store Conditional miss)
@@ -918,8 +963,9 @@ class LsuPlugin(var layer : LaneLayer,
           default -> B(TrapArg.FETCH_LSU, 2 bits)
         )
         trapPort.arg(2) := l1.GUEST
-        trapPort.arg(3, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
-        if (pp.implementHypervisor) trapPort.arg(3 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
+        trapPort.arg(3) := tpk.AD_UPDATE
+        trapPort.arg(4, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
+        if (pp.implementHypervisor) trapPort.arg(4 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
         when(tpk.REFILL) { // Could be ignored for llc flush
           lsuTrap := True
           trapPort.exception := False
@@ -1005,6 +1051,22 @@ class LsuPlugin(var layer : LaneLayer,
         }
 
         if(withStoreBuffer) enable.setWhen((!storeBuffer.empty || !onAddress0.STORE_BUFFER_EMPTY))
+      }
+
+      val update = dbusUpdates.nonEmpty generate new Area {
+        assert(dbusUpdates.size == 1)
+
+        val rsp = dbusUpdates.head.rsp
+        rsp.valid := l1.SEL && FROM_UPDATE && !elp.isFreezed()
+        rsp.data := loadData.RESULT.resize(XLEN bits)
+        rsp.error := l1.FAULT || pmpPort.ACCESS_FAULT || traps.pmaFault
+        rsp.redo := traps.l1Failed && !traps.pmaFault
+        rsp.updated := !l1.CAS || l1.CAS_HIT
+        rsp.waitSlot := 0
+        rsp.waitAny := False
+        when(rsp.fire && rsp.redo) {
+          onAddress0.update.waiter.capture(down)
+        }
       }
 
       val onLlcFlush = withLlcFlush generate new Area{

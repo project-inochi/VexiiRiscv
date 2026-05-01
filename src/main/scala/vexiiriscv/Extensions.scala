@@ -111,6 +111,8 @@ object ExtensionList {
     E("zksed"),
     E("zksh"),
 
+    E("svadu").require("s"),
+
     /* Ss* extensions */
     E("ssaia").require("s").depend("smaia", "sscsrind"),
     E("sscofpmf").require("s").depend("zihpm"),

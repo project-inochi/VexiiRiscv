@@ -54,6 +54,7 @@ class TesterPlugin extends FiberPlugin{
     ptw.cmd.storageId := 0
     ptw.cmd.storageEnable := False
     ptw.cmd.forceGuest := False
+    ptw.cmd.updateAD := False
     ptw.cmd.permission.read := True
     ptw.cmd.permission.write := False
     ptw.cmd.permission.execute := False

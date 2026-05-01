@@ -172,13 +172,17 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
 
     invalidationLocks.release()
 
-    val trapArgWidths = ArrayBuffer[Int](3)
-    if(ats.mayNeedRedo) trapArgWidths += 3+ats.getStorageIdWidth()
+    val mmuUpdateAdArgOffset = 3
+    val atsStorageIdArgOffset = mmuUpdateAdArgOffset + 1
+    val satsStorageIdArgOffset = atsStorageIdArgOffset + ats.getStorageIdWidth()
+
+    val trapArgWidths = ArrayBuffer[Int](atsStorageIdArgOffset)
+    if(ats.mayNeedRedo) trapArgWidths += atsStorageIdArgOffset+ats.getStorageIdWidth()
     /*
      * A standalone field is required, because there is no guarantee
      * that ats.storageId == sats.storageId
      */
-    if(sats.mayNeedRedo) trapArgWidths += 3+ats.getStorageIdWidth()+sats.getStorageIdWidth()
+    if(sats.mayNeedRedo) trapArgWidths += satsStorageIdArgOffset+sats.getStorageIdWidth()
     TRAP_ARG_WIDTH.set(trapArgWidths.max)
 
     trapLock.await()
@@ -509,9 +513,10 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
             refill.cmd.permission.read := !pending.state.arg(1)
             refill.cmd.permission.write := pending.state.arg(0, 2 bits) === TrapArg.STORE
             refill.cmd.permission.execute := pending.state.arg(1)
-            refill.cmd.storageEnable := True
+            refill.cmd.updateAD := pending.state.arg(mmuUpdateAdArgOffset)
+            refill.cmd.storageEnable := !pending.state.arg(mmuUpdateAdArgOffset)
             refill.cmd.address := pending.state.tval.asUInt
-            refill.cmd.storageId := pending.state.arg(3, ats.getStorageIdWidth() bits).asUInt
+            refill.cmd.storageId := pending.state.arg(atsStorageIdArgOffset, ats.getStorageIdWidth() bits).asUInt
             refill.rsp.ready := False
 
             val invalidate = ats.newInvalidationPort()
@@ -537,9 +542,10 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
             refill.cmd.permission.read := !pending.state.arg(1)
             refill.cmd.permission.write := pending.state.arg(0, 2 bits) === TrapArg.STORE
             refill.cmd.permission.execute := pending.state.arg(1)
+            refill.cmd.updateAD := False
             refill.cmd.storageEnable := True
             refill.cmd.address := (pending.state.tval2.asUInt << 2).resized
-            refill.cmd.storageId := pending.state.arg(3+ats.getStorageIdWidth(), sats.getStorageIdWidth() bits).asUInt
+            refill.cmd.storageId := pending.state.arg(satsStorageIdArgOffset, sats.getStorageIdWidth() bits).asUInt
             refill.rsp.ready := False
 
             val invalidate = sats.newInvalidationPort()
@@ -779,6 +785,7 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
                   buffer.trap.tval2 := atsPorts.refill.rsp.address.dropLow(2).asBits.resized
                   when (atsPorts.refill.rsp.guestFault) {
                     buffer.trap.pseudoUop := (XLEN.get == 32).mux(0x00002000, 0x00003000)
+                    buffer.trap.pseudoUop(5).setWhen(atsPorts.refill.rsp.hw)
                   }
                 }
                 switch(atsPorts.refill.rsp.guestFault ## atsPorts.refill.rsp.accessFault ## pending.state.arg(1 downto 0)) {

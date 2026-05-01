@@ -572,8 +572,9 @@ class FetchL1Plugin(var translationStorageParameter: Any,
 
       trapPort.arg(0, 2 bits) := TrapArg.FETCH
       trapPort.arg(2) := False
-      trapPort.arg(3, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
-      if (priv.implementHypervisor) trapPort.arg(3 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
+      trapPort.arg(3) := tpk.AD_UPDATE
+      trapPort.arg(4, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
+      if (priv.implementHypervisor) trapPort.arg(4 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
       when(tpk.REFILL) {
         allowRefill := False
         trapPort.valid := True
@@ -681,4 +682,3 @@ class FetchL1Plugin(var translationStorageParameter: Any,
   val regions = Handle[ArrayBuffer[PmaRegion]]()
   val pmaBuilder = during build new PmaLogic(logic.ctrl.pmaPort, regions.filter(_.isExecutable))
 }
-

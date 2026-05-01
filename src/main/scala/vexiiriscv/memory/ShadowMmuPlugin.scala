@@ -43,9 +43,11 @@ class ShadowMmuPlugin(var spec : MmuSpec,
     val ram = host[CsrRamService]
     val pcs = host.get[PerformanceCounterService]
     val mmu = host[MmuPlugin]
+    val pte = host.get[PteUpdatePlugin]
 
     val csrLock = retains(csr.csrLock, ram.csrLock)
     val accessLock = retains(access.accessRetainer)
+    val pteLock = pte.map(p => retains(p.accessRetainer))
     val buildBefore = retains(List(host[PipelineBuilderPlugin].elaborationLock) ++ pcs.map(_.elaborationLock))
 
     awaitBuild()
@@ -53,6 +55,10 @@ class ShadowMmuPlugin(var spec : MmuSpec,
     val accessBus = access.newDBusAccess(false)
 
     accessLock.release()
+
+    val pteUpdate = pte.map(_.newPteUpdate(1, false, spec.entryBytes))
+
+    pteLock.foreach(_.release())
 
     def physCap(range : Range) = (range.high min physicalWidth-1) downto range.low
 
@@ -96,7 +102,8 @@ class ShadowMmuPlugin(var spec : MmuSpec,
       asidWidth   = 0,
       checkUser   = false,
       checkGlobal = false,
-      checkGuest  = false
+      checkGuest  = false,
+      checkDirty  = pte.nonEmpty
     )
     val storages = for(ss <- storageSpecs) yield new MmuTlbStorage(spec, physicalWidth, tlbGenerateParam, ss)
 
@@ -106,6 +113,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
     val isUser = priv.isUSer(0)
     val isVirtual = PrivilegeMode.isGuest(priv.getPrivilege(0))
     def mprv = priv.logic.harts(0).m.status.mprv
+    def adue = mmu.logic.madue
 
     api.fetchTranslationEnable := hgatp.mode === spec.satpMode
     api.fetchTranslationEnable clearWhen(!isVirtual)
@@ -152,6 +160,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         val lineAllowRead    = entriesMux(_.allowRead)
         val lineAllowWrite   = entriesMux(_.allowWrite)
         val lineTranslated   = entriesMux(_.physicalAddressFrom(ps.req.PRE_ADDRESS))
+        val lineIsDirty      = pte.nonEmpty.mux(entriesMux(_.dirty), True)
 
         val requireMmuLockup  = CombInit(ps.usage match {
           case LOAD_STORE => api.lsuTranslationEnable || (ps.req.FORCE_GUEST && hgatp.mode === spec.satpMode)
@@ -169,15 +178,18 @@ class ShadowMmuPlugin(var spec : MmuSpec,
           val readCheck     = ps.req.LOAD && !allow_read
           val writeCheck    = ps.req.STORE && !allow_write
           val executeCheck  = ps.req.EXECUTE && !allow_execute
+          val dirtyCheck    = ps.req.STORE && allow_write && !lineIsDirty && adue
           val page_fault    = readCheck || writeCheck || executeCheck
 
           HAZARD        := False
-          REFILL        := !hit
+          AD_UPDATE     := False
+          REFILL        := !hit || pte.nonEmpty.mux(!page_fault && dirtyCheck, False)
           TRANSLATED    := lineTranslated
           PAGE_FAULT    := page_fault
           ACCESS_FAULT  := False
         } otherwise {
           HAZARD        := False
+          AD_UPDATE     := False
           REFILL        := False
           TRANSLATED    := ps.req.PRE_ADDRESS.resized
           PAGE_FAULT    := False
@@ -196,6 +208,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
     val refill = new StateMachine{
       val IDLE, BARE = new State
       val CMD, RSP, REFILL, DONE = List.fill(spec.levels.size)(new State)
+      val UPDATE_CMD, UPDATE_RSP = List.fill(spec.levels.size)(new State)
 
       val busy = !isActive(IDLE)
       val virtual = Reg(UInt(MIXED_WIDTH bits))
@@ -256,12 +269,20 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         }
       })
 
+      val inject = pteUpdate.nonEmpty generate new Area {
+        val rsp = Stream(TranslatedDBusAccessRsp())
+        rsp.valid := False
+        rsp.payload.assignDontCare()
+      }
+
       val load = new Area{
         val address = Reg(UInt(PHYSICAL_WIDTH bits))
 
         def cmd = accessBus.cmd
-        val rspUnbuffered = accessBus.rsp
-        val rsp = rspUnbuffered.toStream.stage()
+        val responds = ArrayBuffer[Stream[TranslatedDBusAccessRsp]](accessBus.rsp.toStream)
+        if (pteUpdate.nonEmpty) responds += inject.rsp
+        val arbiter = StreamArbiterFactory().roundRobin.transactionLock.buildOn(responds)
+        val rsp = arbiter.io.output.stage()
         rsp.ready := False
         val readed = rsp.data.subdivideIn(spec.entryBytes*8 bits).read((address >> log2Up(spec.entryBytes)).resized)
 
@@ -272,10 +293,14 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         val flags = readed.resized.as(MmuEntryFlags())
         val leaf = flags.R || flags.X
         val reservedFault = (readed & spec.pteReserved).orR
+        val allowAdUpdate = adue
         val exception = !flags.V || (!flags.R && flags.W) || rsp.error.orR ||
                         (!leaf && (flags.D | flags.A | flags.U)) ||
-                        (leaf && (!flags.A | !flags.U)) ||
+                        (leaf && (!(flags.A | allowAdUpdate) | !flags.U)) ||
                         reservedFault
+        val needDirty = flags.W && permission.write && !flags.D
+        val needAccess = !flags.A
+        val needUpdate = (needDirty || needAccess) && allowAdUpdate
         val levelToPhysicalAddress = List.fill(spec.levels.size)(UInt(spec.physicalWidth bits))
         val levelException = List.fill(spec.levels.size)(False)
         val nextLevelBase = U(0, PHYSICAL_WIDTH bits)
@@ -292,6 +317,19 @@ class ShadowMmuPlugin(var spec : MmuSpec,
           }
         }
       }
+
+      val update = pteUpdate.map(port => new Area {
+        val cmd = port.cmd
+        val rsp = port.rsp
+
+        cmd.valid    := False
+        cmd.address  := load.address
+        cmd.expected := load.readed.resized
+        cmd.mask.A   := load.needAccess
+        cmd.mask.D   := load.needDirty
+
+        rsp.ready := False
+      })
 
       for (port <- refillPorts; rsp = port.rsp) {
         rsp.valid := False
@@ -318,7 +356,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
 
       val permissionCheck = new Area {
         val allowRead    = load.flags.R || (load.flags.X && mmu.logic.status.mxr && !isImplicitAccess)
-        val allowWrite   = load.flags.W && load.flags.D
+        val allowWrite   = load.flags.W && (load.flags.D | pteUpdate.nonEmpty.mux(adue, False))
         val allowExecute = load.flags.X
 
         val readCheck    = permission.read && !allowRead
@@ -338,9 +376,18 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         val permissionFault = permissionCheck.fault
 
         def rspCheck(): Unit = {
-          when(!storageEnable || translationFault) {
+          val context = WhenBuilder()
+
+          context.when(translationFault || permissionFault) {
             goto(DONE(levelId))
-          } otherwise {
+          }
+          if (pte.nonEmpty) context.when(load.needUpdate) {
+            goto(UPDATE_CMD(levelId))
+          }
+          context.when(!storageEnable) {
+            goto(DONE(levelId))
+          }
+          context.otherwise {
             goto(REFILL(levelId))
           }
         }
@@ -375,6 +422,42 @@ class ShadowMmuPlugin(var spec : MmuSpec,
           }
         }
 
+       pteUpdate.map(port => {
+          val cmd = port.cmd
+          val rsp = port.rsp
+          val needDirty = Reg(Bool())
+
+          UPDATE_CMD(levelId) whenIsActive{
+            cmd.valid    := True
+            needDirty    := load.needDirty
+            when (cmd.ready) {
+              load.rsp.ready := True
+              goto(UPDATE_RSP(levelId))
+            }
+          }
+
+          UPDATE_RSP(levelId) whenIsActive{
+            when (rsp.valid) {
+              when(rsp.redo) {
+                goto(CMD(levelId))
+                rsp.ready := True
+              } otherwise {
+                inject.rsp.valid := True
+                inject.rsp.data  := rsp.data
+                inject.rsp.error := rsp.error
+                when (inject.rsp.ready) {
+                  rsp.ready := True
+                  when (!storageEnable || rsp.error.orR) {
+                    goto(DONE(levelId))
+                  } otherwise {
+                    goto(REFILL(levelId))
+                  }
+                }
+              }
+            }
+          }
+        })
+
         REFILL(levelId) whenIsActive {
           for((storage, sid) <- storages.zipWithIndex){
             val storageLevelId = storage.self.p.levels.filter(_.id <= levelId).map(_.id).max
@@ -388,8 +471,12 @@ class ShadowMmuPlugin(var spec : MmuSpec,
             storageLevel.write.data.virtualAddress  := virtual(specLevel.virtualOffset + log2Up(storageLevel.slp.sets), widthOf(storageLevel.write.data.virtualAddress) bits)
             storageLevel.write.data.physicalAddress := (load.levelToPhysicalAddress(levelId) >> specLevel.virtualOffset).resized
             storageLevel.write.data.allowRead       := load.flags.R
-            storageLevel.write.data.allowWrite      := load.flags.W && load.flags.D
+            storageLevel.write.data.allowWrite      := load.flags.W && (load.flags.D || pteUpdate.nonEmpty.mux(load.allowAdUpdate, False))
             storageLevel.write.data.allowExecute    := load.flags.X
+            if (pteUpdate.nonEmpty) {
+              storageLevel.write.data.accessed := load.flags.A
+              storageLevel.write.data.dirty := load.flags.D
+            }
 
             storageLevel.allocId.increment()
           }
@@ -414,6 +501,9 @@ class ShadowMmuPlugin(var spec : MmuSpec,
             o.pageFault   := Mux(translationFault, pageFault, permissionFault)
             o.accessFault := accessFault
             o.pf          := pageFault
+            o.hr          := isImplicitAccess && !permission.write && !permission.execute
+            o.hw          := isImplicitAccess && permission.write
+            o.hx          := isImplicitAccess && permission.execute
             o.ae_ptw      := accessFault && !load.leaf
             o.ae_final    := accessFault && load.leaf //Note so sure
             o.level       := spec.levels.size - 1 - levelId

@@ -362,8 +362,9 @@ class LsuCachelessPlugin(var layer : LaneLayer,
         default -> B(TrapArg.FETCH_LSU, 2 bits)
       )
       trapPort.arg(2) := GUEST
-      trapPort.arg(3, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
-      if (pp.implementHypervisor) trapPort.arg(3 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
+      trapPort.arg(3) := tpk.AD_UPDATE
+      trapPort.arg(4, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
+      if (pp.implementHypervisor) trapPort.arg(4 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
 
       when(tpk.REFILL) {
         skip := True

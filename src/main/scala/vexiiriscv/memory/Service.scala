@@ -37,6 +37,7 @@ case class AddressTranslationRefillCmd(storageWidth : Int) extends Bundle{
   val indirect = Bool()
   val storageId = UInt(storageWidth bits)
   val storageEnable = Bool()
+  val updateAD = Bool()
 
   /*
    * This is used to track translation requrest from HLV/HSV.
@@ -155,6 +156,7 @@ class AddressTranslationRsp(s : AddressTranslationService, val wayCount : Int) e
     val TRANSLATED = Payload(PHYSICAL_ADDRESS)
     val HAZARD = Payload(Bool())
     val REFILL = Payload(Bool())
+    val AD_UPDATE = Payload(Bool())
     val PAGE_FAULT = Payload(Bool())
     val ACCESS_FAULT = Payload(Bool())
     val WAYS_OH  = Payload(Bits(wayCount bits))
@@ -188,6 +190,8 @@ trait DBusAccessService{
   def accessWake: Bits
   def newDBusAccess() : DBusAccess = dbusAccesses.addRet(new DBusAccess(accessRefillCount))
   val dbusAccesses = ArrayBuffer[DBusAccess]()
+  def newDBusUpdate() : DBusUpdate = dbusUpdates.addRet(new DBusUpdate(accessRefillCount))
+  val dbusUpdates = ArrayBuffer[DBusUpdate]()
   val accessRetainer = Retainer()
 }
 
@@ -209,12 +213,36 @@ case class DBusAccessRsp(refillCount : Int) extends Bundle {
   val waitAny  = Bool()
 }
 
+case class DBusUpdate(refillCount : Int) extends Bundle {
+  val cmd = Stream(DBusUpdateCmd())
+  val rsp = Flow(DBusUpdateRsp(refillCount))
+}
+
+case class DBusUpdateCmd() extends Bundle {
+  val address = Global.PHYSICAL_ADDRESS()
+  val size = UInt(2 bits)
+  val cas = Bool()
+  val expected = Bits(Riscv.XLEN bits)
+  val data = Bits(Riscv.XLEN bits)
+}
+
+case class DBusUpdateRsp(refillCount : Int) extends Bundle {
+  val data = Bits(Riscv.XLEN bits)
+  val error = Bool()
+  val redo = Bool()
+  val updated = Bool()
+  val waitSlot = Bits(refillCount bits)
+  val waitAny  = Bool()
+}
+
 /*
  * Two-stage translation abstract
  */
 trait TranslatedDBusAccessService{
   def newDBusAccess(requestGuest: Boolean) : TranslatedDBusAccess = dbusAccesses.addRet(new TranslatedDBusAccess(requestGuest))
   val dbusAccesses = ArrayBuffer[TranslatedDBusAccess]()
+  def newDBusUpdate(requestGuest: Boolean) : TranslatedDBusUpdate = dbusUpdates.addRet(new TranslatedDBusUpdate(requestGuest))
+  val dbusUpdates = ArrayBuffer[TranslatedDBusUpdate]()
   val accessRetainer = Retainer()
 }
 
@@ -232,4 +260,26 @@ case class TranslatedDBusAccessCmd(requestGuest : Boolean) extends Bundle {
 case class TranslatedDBusAccessRsp() extends Bundle {
   val data = Bits(Riscv.XLEN bits)
   val error = Bits(2 bits)
+}
+
+case class TranslatedDBusUpdate(requestGuest : Boolean) extends Bundle {
+  val cmd = Stream(TranslatedDBusUpdateCmd(requestGuest))
+  val rsp = Flow(TranslatedDBusUpdateRsp())
+}
+
+case class TranslatedDBusUpdateCmd(requestGuest : Boolean) extends Bundle {
+  val address = Global.PHYSICAL_ADDRESS()
+  val guest = requestGuest generate Bool()
+  val cas = Bool()
+  val size = UInt(2 bits)
+  val expected = Bits(Riscv.XLEN bits)
+  val data = Bits(Riscv.XLEN bits)
+}
+
+case class TranslatedDBusUpdateRsp() extends Bundle {
+  val data = Bits(Riscv.XLEN bits)
+  val error = Bits(2 bits)
+  /* The error is from implicit write */
+  val implicitWrite = Bool()
+  val updated = Bool()
 }

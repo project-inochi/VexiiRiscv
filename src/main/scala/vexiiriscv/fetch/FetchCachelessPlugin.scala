@@ -230,8 +230,9 @@ class FetchCachelessPlugin(var wordWidth : Int,
 
       trapPort.arg(0, 2 bits) := TrapArg.FETCH
       trapPort.arg(2) := False
-      trapPort.arg(3, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
-      if (priv.implementHypervisor) trapPort.arg(3 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
+      trapPort.arg(3) := tpk.AD_UPDATE
+      trapPort.arg(4, ats.getStorageIdWidth() bits) := ats.getStorageId(translationStorage)
+      if (priv.implementHypervisor) trapPort.arg(4 + ats.getStorageIdWidth(), sats.getStorageIdWidth() bits) := sats.getStorageId(shadowTranslationStorage)
       when(tpk.REFILL) {
         TRAP := True
         trapPort.exception := False

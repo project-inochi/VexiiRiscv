@@ -71,6 +71,7 @@ class StaticTranslationPlugin(var physicalWidth: Int, val translationLevel : Int
 
       // Implement a pass through
       REFILL := False
+      AD_UPDATE := False
       HAZARD := False
       TRANSLATED := spec.req.PRE_ADDRESS.resized //PC RESIZED
       PAGE_FAULT := False

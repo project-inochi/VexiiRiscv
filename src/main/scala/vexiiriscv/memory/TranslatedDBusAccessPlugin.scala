@@ -22,6 +22,7 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
     accessRetainer.await()
 
     val accessBus = dbusAccesses.nonEmpty generate dbus.newDBusAccess()
+    val updateBus = dbusUpdates.nonEmpty generate dbus.newDBusUpdate()
     dbusLock.release()
 
     if (withAtsRedo) {
@@ -30,6 +31,7 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
       atsPort.cmd.indirect            := True
       atsPort.cmd.forceGuest          := False
       atsPort.cmd.storageEnable       := False
+      atsPort.cmd.updateAD            := False
       atsPort.cmd.storageId           := U(0)
       atsPort.cmd.permission.read     := True
       atsPort.cmd.permission.write    := False
@@ -132,6 +134,116 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
               trsp.valid        := rsp.valid
               trsp.data         := rsp.data
               trsp.error(0)     := rsp.error
+              goto(IDLE)
+            }
+          }
+        }
+      }
+    }
+
+    val update = dbusUpdates.nonEmpty generate new Area {
+      val cmd = updateBus.cmd
+      val rsp = updateBus.rsp
+
+      cmd.valid := False
+      cmd.payload.assignDontCare()
+
+      val fsm = for (tda <- dbusUpdates) yield new StateMachine {
+        val generateTransPort = withAtsRedo && tda.requestGuest
+        val IDLE, CMD, RSP = new State
+        val ATS = new State
+        val tcmd = tda.cmd
+        val trsp = tda.rsp
+
+        val req = Reg(TranslatedDBusUpdateCmd(false))
+
+        val cacheRefill = Reg(Bits(dbus.accessRefillCount bits)) init(0)
+        val cacheRefillAny = Reg(Bool()) init(False)
+
+        val cacheRefillSet = cacheRefill.getZero
+        val cacheRefillAnySet = False
+        cacheRefill    := (cacheRefill | cacheRefillSet) & ~dbus.accessWake
+        cacheRefillAny := (cacheRefillAny | cacheRefillAnySet) & !dbus.accessWake.orR
+
+        trsp.valid          := False
+        trsp.error          := B(0)
+        trsp.implicitWrite  := False
+        trsp.data.assignDontCare()
+        trsp.updated.assignDontCare()
+
+        setEntry(IDLE)
+
+        tcmd.ready := False
+
+        IDLE whenIsActive {
+          when (tcmd.valid) {
+            req.address  := tcmd.address
+            req.size     := tcmd.size
+            req.expected := tcmd.expected
+            req.data     := tcmd.data
+            req.cas      := tcmd.cas
+
+            val guestCtx = WhenBuilder()
+            if(generateTransPort) guestCtx.when(tcmd.guest) {
+              atsPort.cmd.valid             := True
+              atsPort.cmd.address           := tcmd.address.resized
+              atsPort.cmd.permission.write  := True
+              when(atsPort.cmd.ready) {
+                tcmd.ready  := True
+                goto(ATS)
+              }
+            }
+            guestCtx.otherwise {
+              tcmd.ready  := True
+              goto(CMD)
+            }
+          }
+        }
+
+        if(generateTransPort) ATS whenIsActive {
+          when(atsPort.rsp.valid) {
+            atsPort.rsp.ready := True
+            /* check permission */
+            when (!atsPort.rsp.bypass && atsPort.rsp.pageFault || atsPort.rsp.accessFault) {
+              trsp.valid          := True
+              trsp.data           := atsPort.rsp.address.asBits.resized
+              trsp.error(1)       := atsPort.rsp.pageFault
+              trsp.error(0)       := atsPort.rsp.accessFault
+              trsp.implicitWrite  := atsPort.rsp.hw
+              goto(IDLE)
+            } otherwise {
+              req.address         := atsPort.rsp.address
+              goto(CMD)
+            }
+          }
+        }
+
+        CMD whenIsActive {
+          when(cacheRefill === 0 && !cacheRefillAny) {
+            cmd.valid     := True
+            cmd.address   := req.address
+            cmd.size      := req.size
+            cmd.cas       := req.cas
+            cmd.expected  := req.expected
+            cmd.data      := req.data
+            when (cmd.ready) {
+              goto(RSP)
+            }
+          }
+        }
+
+        RSP whenIsActive {
+          when (rsp.valid) {
+            when (rsp.redo) {
+              cacheRefillSet    := rsp.waitSlot
+              cacheRefillAnySet := rsp.waitAny
+              goto(CMD)
+            } otherwise {
+              trsp.valid          := rsp.valid
+              trsp.data           := rsp.data
+              trsp.error(0)       := rsp.error
+              trsp.implicitWrite  := False
+              trsp.updated        := rsp.updated
               goto(IDLE)
             }
           }
