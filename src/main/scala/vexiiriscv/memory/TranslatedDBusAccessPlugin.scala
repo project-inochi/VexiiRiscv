@@ -50,6 +50,7 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
       for (tda <- dbusAccesses) {
         tda.rsp.valid := False
         tda.rsp.error := B(0)
+        tda.rsp.dirtyLogFault := False
         tda.rsp.data.assignDontCare()
       }
 
@@ -100,11 +101,12 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
           when(atsPort.rsp.valid) {
             atsPort.rsp.ready := True
             /* check permission */
-            when (!atsPort.rsp.bypass && atsPort.rsp.pageFault || atsPort.rsp.accessFault) {
+            when (!atsPort.rsp.bypass && (atsPort.rsp.pageFault || atsPort.rsp.accessFault || atsPort.rsp.dirtyLogFault)) {
               trsp.valid          := True
               trsp.data           := atsPort.rsp.address.asBits.resized
               trsp.error(1)       := atsPort.rsp.pageFault
               trsp.error(0)       := atsPort.rsp.accessFault
+              trsp.dirtyLogFault  := atsPort.rsp.dirtyLogFault
               goto(IDLE)
             } otherwise {
               address             := atsPort.rsp.address
@@ -134,6 +136,7 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
               trsp.valid        := rsp.valid
               trsp.data         := rsp.data
               trsp.error(0)     := rsp.error
+              trsp.dirtyLogFault := False
               goto(IDLE)
             }
           }
@@ -168,6 +171,7 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
         trsp.valid          := False
         trsp.error          := B(0)
         trsp.implicitWrite  := False
+        trsp.dirtyLogFault  := False
         trsp.data.assignDontCare()
         trsp.updated.assignDontCare()
 
@@ -204,11 +208,12 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
           when(atsPort.rsp.valid) {
             atsPort.rsp.ready := True
             /* check permission */
-            when (!atsPort.rsp.bypass && atsPort.rsp.pageFault || atsPort.rsp.accessFault) {
+            when (!atsPort.rsp.bypass && (atsPort.rsp.pageFault || atsPort.rsp.accessFault || atsPort.rsp.dirtyLogFault)) {
               trsp.valid          := True
               trsp.data           := atsPort.rsp.address.asBits.resized
               trsp.error(1)       := atsPort.rsp.pageFault
               trsp.error(0)       := atsPort.rsp.accessFault
+              trsp.dirtyLogFault  := atsPort.rsp.dirtyLogFault
               trsp.implicitWrite  := atsPort.rsp.hw
               goto(IDLE)
             } otherwise {
@@ -243,6 +248,7 @@ class TranslatedDBusAccessPlugin() extends FiberPlugin with TranslatedDBusAccess
               trsp.data           := rsp.data
               trsp.error(0)       := rsp.error
               trsp.implicitWrite  := False
+              trsp.dirtyLogFault  := False
               trsp.updated        := rsp.updated
               goto(IDLE)
             }

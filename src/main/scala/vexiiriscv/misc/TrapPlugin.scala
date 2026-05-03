@@ -606,7 +606,8 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
             CSR.MCAUSE_ENUM.STORE_PAGE_FAULT,
             CSR.MCAUSE_ENUM.INSTRUCTION_GUEST_PAGE_FAULT,
             CSR.MCAUSE_ENUM.LOAD_GUEST_PAGE_FAULT,
-            CSR.MCAUSE_ENUM.STORE_GUEST_PAGE_FAULT
+            CSR.MCAUSE_ENUM.STORE_GUEST_PAGE_FAULT,
+            CSR.MCAUSE_ENUM.DIRTY_LOG_FAULT
           ).map(pending.state.code === _).orR
 
           if (fl1p.nonEmpty) fetchL1Invalidate(hartId).cmd.valid := False
@@ -653,7 +654,8 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
                 val writeTval2 = List(
                   CSR.MCAUSE_ENUM.INSTRUCTION_GUEST_PAGE_FAULT,
                   CSR.MCAUSE_ENUM.LOAD_GUEST_PAGE_FAULT,
-                  CSR.MCAUSE_ENUM.STORE_GUEST_PAGE_FAULT
+                  CSR.MCAUSE_ENUM.STORE_GUEST_PAGE_FAULT,
+                  CSR.MCAUSE_ENUM.DIRTY_LOG_FAULT
                 ).map(pending.state.code === _).orR
                 when(writeTval2 && pending.state.exception && (pending.state.arg(2) || buffer.state.guestMemoryAccess)) {
                   buffer.trap.tval2 := pending.state.tval2.resized
@@ -668,7 +670,8 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
                   CSR.MCAUSE_ENUM.LOAD_PAGE_FAULT,
                   CSR.MCAUSE_ENUM.STORE_PAGE_FAULT,
                   CSR.MCAUSE_ENUM.LOAD_GUEST_PAGE_FAULT,
-                  CSR.MCAUSE_ENUM.STORE_GUEST_PAGE_FAULT
+                  CSR.MCAUSE_ENUM.STORE_GUEST_PAGE_FAULT,
+                  CSR.MCAUSE_ENUM.DIRTY_LOG_FAULT
                 ).map(pending.state.code === _).orR
                 if (recordHtinst) when(writeHtinst) {
                   val transformer = RvhTransformer(
@@ -778,7 +781,12 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
 
           if(ats.mayNeedRedo) ATS_RSP.whenIsActive {
             when(atsPorts.refill.rsp.valid) {
-              when(atsPorts.refill.rsp.guestFault || atsPorts.refill.rsp.pageFault || atsPorts.refill.rsp.accessFault) {
+              when(atsPorts.refill.rsp.dirtyLogFault) {
+                atsPorts.refill.rsp.ready := True
+                pending.state.exception := True
+                pending.state.code := CSR.MCAUSE_ENUM.DIRTY_LOG_FAULT
+                goto(TRAP_TVAL)
+              } elsewhen(atsPorts.refill.rsp.guestFault || atsPorts.refill.rsp.pageFault || atsPorts.refill.rsp.accessFault) {
                 atsPorts.refill.rsp.ready := True
                 pending.state.exception := True
                 if (priv.p.withHypervisor) when(atsPorts.isGuestRefill) {
@@ -833,7 +841,12 @@ class TrapPlugin(val trapAt : Int, val recordHtinst : Boolean) extends FiberPlug
               api.harts(hartId).redo := True
               satsPorts.refill.rsp.ready := True
               goto(JUMP) // improvement: shave one cycle
-              when(satsPorts.refill.rsp.pageFault || satsPorts.refill.rsp.accessFault) {
+              when(satsPorts.refill.rsp.dirtyLogFault) {
+                pending.state.exception := True
+                buffer.trap.tval2 := satsPorts.refill.rsp.address.dropLow(2).asBits.resized
+                pending.state.code := CSR.MCAUSE_ENUM.DIRTY_LOG_FAULT
+                goto(TRAP_TVAL)
+              } elsewhen(satsPorts.refill.rsp.pageFault || satsPorts.refill.rsp.accessFault) {
                 pending.state.exception := True
                 buffer.trap.tval2 := satsPorts.refill.rsp.address.dropLow(2).asBits.resized
                 switch(satsPorts.refill.rsp.accessFault ## pending.state.arg(1 downto 0)){

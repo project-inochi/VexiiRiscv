@@ -711,12 +711,11 @@ class VexiiRiscvProbe(cpu : VexiiRiscv, kb : Option[konata.Backend], var withRvl
     if (pteUpdate.fire.toBoolean) {
       val hartId = pteUpdate.hartId.toInt
       val hart = harts(hartId)
-      val sqId = pteUpdate.storeId.toLong
       val address = pteUpdate.address.toLong
       val bytes = 1 << pteUpdate.size.toInt
       val data = pteUpdate.data.toLong
-      backends.foreach(_.storeExecute(hart.hartId, sqId, address, bytes, data))
-      backends.foreach(_.storeBroadcast(hart.hartId, sqId))
+      val error = pteUpdate.error.toBoolean
+      backends.foreach(_.mmuStore(hart.hartId, address, bytes, data, error))
     }
   }
 

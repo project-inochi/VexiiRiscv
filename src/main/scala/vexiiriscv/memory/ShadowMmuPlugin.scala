@@ -19,7 +19,8 @@ import scala.collection.mutable.ArrayBuffer
 
 class ShadowMmuPlugin(var spec : MmuSpec,
                       var physicalWidth : Int,
-                      var vmidWidth : Int) extends FiberPlugin with GenericMmuPlugin{
+                      var vmidWidth : Int,
+                      var withDirtyLog: Boolean = false) extends FiberPlugin with GenericMmuPlugin{
   override def isShadowMmu : Boolean = true
 
   /* Second stage is always zero-extended */
@@ -56,7 +57,9 @@ class ShadowMmuPlugin(var spec : MmuSpec,
 
     accessLock.release()
 
-    val pteUpdate = pte.map(_.newPteUpdate(1, false, spec.entryBytes))
+    val updateLog = withDirtyLog generate DefaultPteUpdateLog(spec.entryBytes, false)
+    if (withDirtyLog) pte.map(_.registerPteLog(1, updateLog))
+    val pteUpdate = pte.map(_.newPteUpdate(1, spec.entryBytes, false, withDirtyLog))
 
     pteLock.foreach(_.release())
 
@@ -91,6 +94,23 @@ class ShadowMmuPlugin(var spec : MmuSpec,
       } elsewhen (hgatpModeWrite === spec.satpMode) {
         hgatp.mode := spec.satpMode
       }
+    }
+
+    if (withDirtyLog) {
+      csr.readWrite(CSR.HDLTCTL, 0 -> updateLog.state.enable)
+      csr.read(CSR.HDLTCTL, 10 -> updateLog.state.address)
+      csr.read(CSR.HDLTCTL, 1 -> updateLog.state.size)
+      csr.onWrite(CSR.HDLTCTL, true) {
+        val ppnWidth = widthOf(updateLog.state.address)
+        val size = csr.bus.write.bits(1, 4 bits).asUInt.min(9)
+        val ppn = csr.bus.write.bits(10, ppnWidth bits).asUInt
+        val mask = ppn.getAllTrue |<< size
+        val physicalMask = U((BigInt(1) << Math.min(ppnWidth, physicalWidth - 12)) - 1, ppnWidth bits)
+        updateLog.state.size := size
+        updateLog.state.address := ppn & mask & physicalMask
+      }
+
+      csr.readWrite(CSR.HDLTIDX, 0 -> updateLog.state.counter)
     }
 
     csrLock.release()
@@ -252,14 +272,15 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         }
 
         refillPorts.map(_.rsp).foreach { o =>
-          o.bypass      := True
-          o.pageFault   := False
-          o.accessFault := False
-          o.pf          := False
-          o.ae_ptw      := False
-          o.ae_final    := False
-          o.level       := 0
-          o.address     := virtual.resized
+          o.bypass        := True
+          o.pageFault     := False
+          o.accessFault   := False
+          o.dirtyLogFault := False
+          o.pf            := False
+          o.ae_ptw        := False
+          o.ae_final      := False
+          o.level         := 0
+          o.address       := virtual.resized
         }
       }
 
@@ -327,6 +348,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         cmd.expected := load.readed.resized
         cmd.mask.A   := load.needAccess
         cmd.mask.D   := load.needDirty
+        if (withDirtyLog) cmd.virtualPPN := virtual.dropLow(12).asUInt.resized
 
         rsp.ready := False
       })
@@ -336,6 +358,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         rsp.pageFault.assignDontCare()
         rsp.accessFault.assignDontCare()
         rsp.guestFault.assignDontCare()
+        rsp.dirtyLogFault.assignDontCare()
         rsp.bypass.assignDontCare()
         rsp.pf.assignDontCare()
         rsp.ae_ptw.assignDontCare()
@@ -374,11 +397,12 @@ class ShadowMmuPlugin(var spec : MmuSpec,
         val accessFault = pteReadError || !pteFault && leafAccessFault
         val translationFault = pteFault || leafAccessFault
         val permissionFault = permissionCheck.fault
+        val dirtyLogFault = withDirtyLog.mux(load.rsp.dirtyLogFault, False)
 
         def rspCheck(): Unit = {
           val context = WhenBuilder()
 
-          context.when(translationFault || permissionFault) {
+          context.when(translationFault || permissionFault || dirtyLogFault) {
             goto(DONE(levelId))
           }
           if (pte.nonEmpty) context.when(load.needUpdate) {
@@ -445,9 +469,10 @@ class ShadowMmuPlugin(var spec : MmuSpec,
                 inject.rsp.valid := True
                 inject.rsp.data  := rsp.data
                 inject.rsp.error := rsp.error
+                inject.rsp.dirtyLogFault := rsp.logFault
                 when (inject.rsp.ready) {
                   rsp.ready := True
-                  when (!storageEnable || rsp.error.orR) {
+                  when (!storageEnable || rsp.error.orR || rsp.logFault) {
                     goto(DONE(levelId))
                   } otherwise {
                     goto(REFILL(levelId))
@@ -500,6 +525,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
             o.bypass      := False
             o.pageFault   := Mux(translationFault, pageFault, permissionFault)
             o.accessFault := accessFault
+            o.dirtyLogFault := dirtyLogFault
             o.pf          := pageFault
             o.hr          := isImplicitAccess && !permission.write && !permission.execute
             o.hw          := isImplicitAccess && permission.write
@@ -507,7 +533,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
             o.ae_ptw      := accessFault && !load.leaf
             o.ae_final    := accessFault && load.leaf //Note so sure
             o.level       := spec.levels.size - 1 - levelId
-            o.address     := Mux(!isImplicitAccess || translationFault || permissionFault, virtual, translatedAddress).resized
+            o.address     := Mux(!isImplicitAccess || translationFault || permissionFault || dirtyLogFault, virtual, translatedAddress).resized
           }
         }
       }

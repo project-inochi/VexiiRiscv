@@ -50,7 +50,7 @@ case class AddressTranslationRefillCmd(storageWidth : Int) extends Bundle{
 }
 
 case class AddressTranslationRefillRsp() extends Bundle{
-  val pageFault, accessFault, guestFault = Bool()
+  val pageFault, accessFault, guestFault, dirtyLogFault = Bool()
 
   val bypass = Bool()
 
@@ -260,6 +260,7 @@ case class TranslatedDBusAccessCmd(requestGuest : Boolean) extends Bundle {
 case class TranslatedDBusAccessRsp() extends Bundle {
   val data = Bits(Riscv.XLEN bits)
   val error = Bits(2 bits)
+  val dirtyLogFault = Bool()
 }
 
 case class TranslatedDBusUpdate(requestGuest : Boolean) extends Bundle {
@@ -281,5 +282,6 @@ case class TranslatedDBusUpdateRsp() extends Bundle {
   val error = Bits(2 bits)
   /* The error is from implicit write */
   val implicitWrite = Bool()
+  val dirtyLogFault = Bool()
   val updated = Bool()
 }

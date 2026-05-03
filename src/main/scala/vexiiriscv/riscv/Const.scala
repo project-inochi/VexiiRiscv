@@ -125,6 +125,7 @@ object CSR {
     val INSTRUCTION_GUEST_PAGE_FAULT = 20
     val LOAD_GUEST_PAGE_FAULT = 21
     val STORE_GUEST_PAGE_FAULT = 23
+    val DIRTY_LOG_FAULT = 24
 
     def isPageFault(code : UInt) : Bool = List(INSTRUCTION_PAGE_FAULT, LOAD_PAGE_FAULT, STORE_PAGE_FAULT).map(code === U(_)).orR
   }
@@ -257,8 +258,8 @@ object CSR {
   def HGATP       = 0x680 // HRW Hypervisor guest address translation and protection.
   def HTIMEDELTA  = 0x605 // HRW Delta for VS/VU-mode timer.
   def HTIMEDELTAH = 0x615 // HRW Upper 32 bits of htimedelta, RV32 only.
-  def HDLCTL      = 0x681 // HRW Hypervisor dirty log control.
-  def HDLIDX      = 0x682 // HRW Hypervisor dirty log control.
+  def HDLTCTL     = 0x681 // HRW Hypervisor guest dirty log tracking control.
+  def HDLTIDX     = 0x682 // HRW Hypervisor guest dirty log tracking index.
 
   val VSSTATUS    = 0x200
   val VSIE        = 0x204

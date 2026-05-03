@@ -272,41 +272,37 @@ class WhiteboxerPlugin(withOutputs : Boolean) extends FiberPlugin{
     val pteUpdateBroadcast = new Area {
       val fire = Bool()
       val hartId = Global.HART_ID()
-      val storeId = Decode.STORE_ID()
       val size = UInt(2 bits)
       val address = Global.PHYSICAL_ADDRESS()
       val data = Bits(Riscv.XLEN bits)
-      SimPublic(fire, hartId, storeId, size, address, data)
+      val error = Bool()
+      SimPublic(fire, hartId, size, address, data, error)
 
       fire := False
       hartId := U(0).resized
-      storeId := U(0).resized
       size := U(0).resized
       address := U(0).resized
       data := B(0, Riscv.XLEN bits)
+      error := False
 
       val tap = host.get[TranslatedDBusAccessPlugin].filter(_.dbusUpdates.nonEmpty).map(p => new Area {
         val bus = p.logic.updateBus
-        val nextId = Reg(Decode.STORE_ID()) init(U(1 << (Decode.STORE_ID_WIDTH-1), Decode.STORE_ID_WIDTH bits))
-        val pendingId = Reg(Decode.STORE_ID())
         val pendingAddress = Reg(Global.PHYSICAL_ADDRESS())
         val pendingSize = Reg(UInt(2 bits))
         val pendingData = Reg(Bits(Riscv.XLEN bits))
 
         when(bus.cmd.fire) {
-          pendingId := nextId
           pendingAddress := bus.cmd.address
           pendingSize := bus.cmd.size
           pendingData := bus.cmd.data
-          nextId := nextId + 1
         }
 
-        when(bus.rsp.valid && !bus.rsp.error && bus.rsp.updated) {
+        when(bus.rsp.valid && !bus.rsp.redo && (bus.rsp.error || bus.rsp.updated)) {
           fire := True
-          storeId := pendingId
           size := pendingSize
           address := pendingAddress
           data := pendingData
+          error := bus.rsp.error
         }
       })
     }
@@ -510,10 +506,10 @@ class WhiteboxerPlugin(withOutputs : Boolean) extends FiberPlugin{
     class PteUpdateBroadcastProxy {
       val fire = pteUpdateBroadcast.fire.simProxy()
       val hartId = pteUpdateBroadcast.hartId.simProxy()
-      val storeId = pteUpdateBroadcast.storeId.simProxy()
       val size = pteUpdateBroadcast.size.simProxy()
       val address = pteUpdateBroadcast.address.simProxy()
       val data = pteUpdateBroadcast.data.simProxy()
+      val error = pteUpdateBroadcast.error.simProxy()
     }
 
     class LearnProxy(port: Flow[LearnCmd]) {

@@ -563,6 +563,7 @@ class ParamSimple() {
   def checkISA(exts: String*) = extension.check(exts :_*)
 
   def withMmu = extension.withSupervisor && !disableMmu
+  def withDirtyLog = checkISA("shdlt")
 
   def fixIsaParams() = {
     if(privParam.imsicInterrupts > 0) {
@@ -818,7 +819,8 @@ class ParamSimple() {
       case true => plugins += new vexiiriscv.memory.ShadowMmuPlugin(
         spec = if (xlen == 32) MmuSpec.sv32 else MmuSpec.sv39,
         physicalWidth = physicalWidth,
-        vmidWidth = 0 /* TODO */
+        vmidWidth = 0, /* TODO */
+        withDirtyLog = withDirtyLog
       )
     }
 

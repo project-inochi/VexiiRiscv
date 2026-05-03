@@ -123,6 +123,7 @@ object ExtensionList {
     E("svade").require("s"),
 
     /* Sh* extensions */
+    E("shdlt").require("h").depend("svadu"),
     E("shlcofideleg").require("h").depend("sscofpmf"),
 
     /* Sm* extensions */

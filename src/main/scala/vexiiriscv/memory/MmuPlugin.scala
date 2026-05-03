@@ -285,7 +285,7 @@ class MmuPlugin(var spec : MmuSpec,
 
     accessLock.release()
 
-    val pteUpdate = pte.map(_.newPteUpdate(0, priv.implementHypervisor, spec.entryBytes))
+    val pteUpdate = pte.map(_.newPteUpdate(0, spec.entryBytes, priv.implementHypervisor, false))
 
     pteLock.foreach(_.release())
 
@@ -679,6 +679,7 @@ class MmuPlugin(var spec : MmuSpec,
         rsp.pageFault.assignDontCare()
         rsp.accessFault.assignDontCare()
         rsp.guestFault.assignDontCare()
+        rsp.dirtyLogFault.assignDontCare()
         rsp.bypass.assignDontCare()
         rsp.pf.assignDontCare()
         rsp.ae_ptw.assignDontCare()
@@ -717,6 +718,7 @@ class MmuPlugin(var spec : MmuSpec,
         val guestFault = shadowReadError && !pteReadError
         val translationFault = pteFault || leafAccessFault
         val permissionFault = updateAD && permCheck.rsp.page_fault
+        val dirtyLogFault = load.rsp.dirtyLogFault
 
         def doneLogic() : Unit = {
           val translatedAddress = load.levelToPhysicalAddress(levelId)
@@ -736,6 +738,7 @@ class MmuPlugin(var spec : MmuSpec,
             o.pageFault := Mux(translationFault, pageFault, permissionFault)
             o.accessFault := accessFault
             o.guestFault := shadowReadError
+            o.dirtyLogFault := dirtyLogFault
             o.pf  := pageFault
             o.hr  := isTwoStage && shadowReadError && !implicitGuestFaultIsWrite
             o.hw  := isTwoStage && shadowReadError && implicitGuestFaultIsWrite
@@ -753,7 +756,7 @@ class MmuPlugin(var spec : MmuSpec,
         def rspCheck(): Unit = {
           val context = WhenBuilder()
 
-          context.when(translationFault) {
+          context.when(translationFault || dirtyLogFault) {
             goto(DONE(levelId))
           }
           if (pte.nonEmpty) context.when(updateAD && load.allowAdUpdate && permCheck.rsp.needUpdate) {
@@ -826,9 +829,10 @@ class MmuPlugin(var spec : MmuSpec,
                 inject.rsp.valid := True
                 inject.rsp.data  := rsp.data
                 inject.rsp.error := rsp.error
+                inject.rsp.dirtyLogFault := rsp.logFault
                 when (inject.rsp.ready) {
                   rsp.ready := True
-                  when ((!storageEnable && !updateAD) || rsp.error.orR) {
+                  when ((!storageEnable && !updateAD) || rsp.error.orR || rsp.logFault) {
                     goto(DONE(levelId))
                   } otherwise {
                     goto(REFILL(levelId))
