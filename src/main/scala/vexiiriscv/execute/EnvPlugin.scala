@@ -72,7 +72,7 @@ class EnvPlugin(layer : LaneLayer,
       trapPort.tval := B(PC).andMask(OP === EnvPluginOp.EBREAK)  | Decode.UOP.andMask(List(EnvPluginOp.PRIV_RET, EnvPluginOp.WFI, EnvPluginOp.SFENCE_VMA).map(_ === this(OP)).orR).resized
       trapPort.tval2 := 0
       trapPort.code := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-      trapPort.arg.assignDontCare()
+      trapPort.arg.assignDontCare() := 0
       trapPort.laneAge := Execute.LANE_AGE
 
       val privilege = ps.getPrivilege(HART_ID)
@@ -169,6 +169,7 @@ class EnvPlugin(layer : LaneLayer,
               trapPort.code := TrapReason.SFENCE_VMA
               trapPort.tval := srcp.SRC1.asBits.resized
               trapPort.tval2 := srcp.SRC2.asBits.resized
+              trapPort.arg(0) := isGuest
             }
             if(ps.p.withHypervisor) {
               when(privilege === PrivilegeMode.VU || privilege === PrivilegeMode.VS && vmaKoMapping(PrivilegeMode.VS)) {
@@ -197,6 +198,7 @@ class EnvPlugin(layer : LaneLayer,
               trapPort.code := TrapReason.SFENCE_VMA
               trapPort.tval := srcp.SRC1.asBits.resized
               trapPort.tval2 := srcp.SRC2.asBits.resized
+              trapPort.arg(0) := True
             }
             when(PrivilegeMode.isGuest(privilege)) {
               trapPort.code := CSR.MCAUSE_ENUM.VIRTUAL_INSTRUCTION
