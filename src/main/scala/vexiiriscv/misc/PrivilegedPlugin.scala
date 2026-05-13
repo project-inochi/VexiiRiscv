@@ -1265,7 +1265,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
       def ImsicAreaOffset(id: Int) = id / XLEN * (1 + (XLEN.get == 64).toInt)
 
       def genImsicArea(ireg: Int, topei: Int, provider: (Int, Int) => CsrCondFilter) = new Area {
-        val file = ImsicFile(hartIds(hartId), 1 until p.imsicInterrupts)
+        val file = ImsicFile(hartIds(hartId), p.imsicInterrupts)
         val identity = file.identity
         val triggers = in(file.triggers)
 
@@ -1302,7 +1302,7 @@ class PrivilegedPlugin(val p : PrivilegedParam, val hartIds : Seq[Int]) extends 
       }
 
       def genGuestImsicArea(ireg: Int, topei: Int, provider: (Int, Int, Bool) => CsrCondFilter) = new Area {
-        val files = for (geid <- 1 to p.guestExternalInterruptFiles) yield ImsicFile(hartIds(hartId), geid, 1 until p.imsicInterrupts)
+        val files = for (geid <- 1 to p.guestExternalInterruptFiles) yield ImsicFile(hartIds(hartId), geid, p.imsicInterrupts)
         val triggers = in(Vec(files.map(_.triggers)))
 
         val mux = RegInit(U(0, log2Up(p.guestExternalInterruptFiles + 1) bits))
