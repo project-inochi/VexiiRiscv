@@ -359,7 +359,7 @@ class Soc(c : SocConfig) extends Component {
       val bus = slave(
         Axi4(
           Axi4Config(
-            addressWidth = 32,
+            addressWidth = vexiiParam.physicalWidth,
             dataWidth = mainDataWidth,
             idWidth = 4
           )
