@@ -1018,7 +1018,7 @@ class ParamSimple() {
     plugins += shifter(early0, formatAt = relaxedShift.toInt)
     plugins += new IntFormatPlugin(lane0)
     plugins += new BranchPlugin(layer=early0, aluAt=0, jumpAt=relaxedBranch.toInt, wbAt=0)
-    if(withRvZknAes) plugins += new AesZknPlugin(layer = early0)
+    if(withRvZknAes) plugins += (if(xlen == 64) new Aes64ZknPlugin(layer = early0) else new AesZknPlugin(layer = early0))
     if(withCfu) plugins += new CfuPlugin(
       layer = early0,
       forkAt = 0,

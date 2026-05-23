@@ -2,7 +2,7 @@ package vexiiriscv.execute
 
 import spinal.core._
 import vexiiriscv.decode.Decode
-import vexiiriscv.riscv.{IntRegFile, RS1, RS2, Riscv, Rvi}
+import vexiiriscv.riscv.{IntRegFile, RS1, RS2, Riscv, Rvi, Rvk}
 
 
 /**
@@ -102,6 +102,425 @@ class AesZknPlugin(
     }
 
 
+  }
+
+  // Encryption table which solve a single byte sbox + column mix. Used for all rounds
+  def TE0 = List(
+    0xa5c663, 0x84f87c, 0x99ee77, 0x8df67b,
+    0x0dfff2, 0xbdd66b, 0xb1de6f, 0x5491c5,
+    0x506030, 0x030201, 0xa9ce67, 0x7d562b,
+    0x19e7fe, 0x62b5d7, 0xe64dab, 0x9aec76,
+    0x458fca, 0x9d1f82, 0x4089c9, 0x87fa7d,
+    0x15effa, 0xebb259, 0xc98e47, 0x0bfbf0,
+    0xec41ad, 0x67b3d4, 0xfd5fa2, 0xea45af,
+    0xbf239c, 0xf753a4, 0x96e472, 0x5b9bc0,
+    0xc275b7, 0x1ce1fd, 0xae3d93, 0x6a4c26,
+    0x5a6c36, 0x417e3f, 0x02f5f7, 0x4f83cc,
+    0x5c6834, 0xf451a5, 0x34d1e5, 0x08f9f1,
+    0x93e271, 0x73abd8, 0x536231, 0x3f2a15,
+    0x0c0804, 0x5295c7, 0x654623, 0x5e9dc3,
+    0x283018, 0xa13796, 0x0f0a05, 0xb52f9a,
+    0x090e07, 0x362412, 0x9b1b80, 0x3ddfe2,
+    0x26cdeb, 0x694e27, 0xcd7fb2, 0x9fea75,
+    0x1b1209, 0x9e1d83, 0x74582c, 0x2e341a,
+    0x2d361b, 0xb2dc6e, 0xeeb45a, 0xfb5ba0,
+    0xf6a452, 0x4d763b, 0x61b7d6, 0xce7db3,
+    0x7b5229, 0x3edde3, 0x715e2f, 0x971384,
+    0xf5a653, 0x68b9d1, 0x000000, 0x2cc1ed,
+    0x604020, 0x1fe3fc, 0xc879b1, 0xedb65b,
+    0xbed46a, 0x468dcb, 0xd967be, 0x4b7239,
+    0xde944a, 0xd4984c, 0xe8b058, 0x4a85cf,
+    0x6bbbd0, 0x2ac5ef, 0xe54faa, 0x16edfb,
+    0xc58643, 0xd79a4d, 0x556633, 0x941185,
+    0xcf8a45, 0x10e9f9, 0x060402, 0x81fe7f,
+    0xf0a050, 0x44783c, 0xba259f, 0xe34ba8,
+    0xf3a251, 0xfe5da3, 0xc08040, 0x8a058f,
+    0xad3f92, 0xbc219d, 0x487038, 0x04f1f5,
+    0xdf63bc, 0xc177b6, 0x75afda, 0x634221,
+    0x302010, 0x1ae5ff, 0x0efdf3, 0x6dbfd2,
+    0x4c81cd, 0x14180c, 0x352613, 0x2fc3ec,
+    0xe1be5f, 0xa23597, 0xcc8844, 0x392e17,
+    0x5793c4, 0xf255a7, 0x82fc7e, 0x477a3d,
+    0xacc864, 0xe7ba5d, 0x2b3219, 0x95e673,
+    0xa0c060, 0x981981, 0xd19e4f, 0x7fa3dc,
+    0x664422, 0x7e542a, 0xab3b90, 0x830b88,
+    0xca8c46, 0x29c7ee, 0xd36bb8, 0x3c2814,
+    0x79a7de, 0xe2bc5e, 0x1d160b, 0x76addb,
+    0x3bdbe0, 0x566432, 0x4e743a, 0x1e140a,
+    0xdb9249, 0x0a0c06, 0x6c4824, 0xe4b85c,
+    0x5d9fc2, 0x6ebdd3, 0xef43ac, 0xa6c462,
+    0xa83991, 0xa43195, 0x37d3e4, 0x8bf279,
+    0x32d5e7, 0x438bc8, 0x596e37, 0xb7da6d,
+    0x8c018d, 0x64b1d5, 0xd29c4e, 0xe049a9,
+    0xb4d86c, 0xfaac56, 0x07f3f4, 0x25cfea,
+    0xafca65, 0x8ef47a, 0xe947ae, 0x181008,
+    0xd56fba, 0x88f078, 0x6f4a25, 0x725c2e,
+    0x24381c, 0xf157a6, 0xc773b4, 0x5197c6,
+    0x23cbe8, 0x7ca1dd, 0x9ce874, 0x213e1f,
+    0xdd964b, 0xdc61bd, 0x860d8b, 0x850f8a,
+    0x90e070, 0x427c3e, 0xc471b5, 0xaacc66,
+    0xd89048, 0x050603, 0x01f7f6, 0x121c0e,
+    0xa3c261, 0x5f6a35, 0xf9ae57, 0xd069b9,
+    0x911786, 0x5899c1, 0x273a1d, 0xb9279e,
+    0x38d9e1, 0x13ebf8, 0xb32b98, 0x332211,
+    0xbbd269, 0x70a9d9, 0x89078e, 0xa73394,
+    0xb62d9b, 0x223c1e, 0x921587, 0x20c9e9,
+    0x4987ce, 0xffaa55, 0x785028, 0x7aa5df,
+    0x8f038c, 0xf859a1, 0x800989, 0x171a0d,
+    0xda65bf, 0x31d7e6, 0xc68442, 0xb8d068,
+    0xc38241, 0xb02999, 0x775a2d, 0x111e0f,
+    0xcb7bb0, 0xfca854, 0xd66dbb, 0x3a2c16
+  )
+
+
+  // Decryption table which solve a single byte sbox + column mix. Not used in the last round
+  def TD0 = List(
+    0x50a7f451l, 0x5365417el, 0xc3a4171al, 0x965e273al,
+    0xcb6bab3bl, 0xf1459d1fl, 0xab58faacl, 0x9303e34bl,
+    0x55fa3020l, 0xf66d76adl, 0x9176cc88l, 0x254c02f5l,
+    0xfcd7e54fl, 0xd7cb2ac5l, 0x80443526l, 0x8fa362b5l,
+    0x495ab1del, 0x671bba25l, 0x980eea45l, 0xe1c0fe5dl,
+    0x02752fc3l, 0x12f04c81l, 0xa397468dl, 0xc6f9d36bl,
+    0xe75f8f03l, 0x959c9215l, 0xeb7a6dbfl, 0xda595295l,
+    0x2d83bed4l, 0xd3217458l, 0x2969e049l, 0x44c8c98el,
+    0x6a89c275l, 0x78798ef4l, 0x6b3e5899l, 0xdd71b927l,
+    0xb64fe1bel, 0x17ad88f0l, 0x66ac20c9l, 0xb43ace7dl,
+    0x184adf63l, 0x82311ae5l, 0x60335197l, 0x457f5362l,
+    0xe07764b1l, 0x84ae6bbbl, 0x1ca081fel, 0x942b08f9l,
+    0x58684870l, 0x19fd458fl, 0x876cde94l, 0xb7f87b52l,
+    0x23d373abl, 0xe2024b72l, 0x578f1fe3l, 0x2aab5566l,
+    0x0728ebb2l, 0x03c2b52fl, 0x9a7bc586l, 0xa50837d3l,
+    0xf2872830l, 0xb2a5bf23l, 0xba6a0302l, 0x5c8216edl,
+    0x2b1ccf8al, 0x92b479a7l, 0xf0f207f3l, 0xa1e2694el,
+    0xcdf4da65l, 0xd5be0506l, 0x1f6234d1l, 0x8afea6c4l,
+    0x9d532e34l, 0xa055f3a2l, 0x32e18a05l, 0x75ebf6a4l,
+    0x39ec830bl, 0xaaef6040l, 0x069f715el, 0x51106ebdl,
+    0xf98a213el, 0x3d06dd96l, 0xae053eddl, 0x46bde64dl,
+    0xb58d5491l, 0x055dc471l, 0x6fd40604l, 0xff155060l,
+    0x24fb9819l, 0x97e9bdd6l, 0xcc434089l, 0x779ed967l,
+    0xbd42e8b0l, 0x888b8907l, 0x385b19e7l, 0xdbeec879l,
+    0x470a7ca1l, 0xe90f427cl, 0xc91e84f8l, 0x00000000l,
+    0x83868009l, 0x48ed2b32l, 0xac70111el, 0x4e725a6cl,
+    0xfbff0efdl, 0x5638850fl, 0x1ed5ae3dl, 0x27392d36l,
+    0x64d90f0al, 0x21a65c68l, 0xd1545b9bl, 0x3a2e3624l,
+    0xb1670a0cl, 0x0fe75793l, 0xd296eeb4l, 0x9e919b1bl,
+    0x4fc5c080l, 0xa220dc61l, 0x694b775al, 0x161a121cl,
+    0x0aba93e2l, 0xe52aa0c0l, 0x43e0223cl, 0x1d171b12l,
+    0x0b0d090el, 0xadc78bf2l, 0xb9a8b62dl, 0xc8a91e14l,
+    0x8519f157l, 0x4c0775afl, 0xbbdd99eel, 0xfd607fa3l,
+    0x9f2601f7l, 0xbcf5725cl, 0xc53b6644l, 0x347efb5bl,
+    0x7629438bl, 0xdcc623cbl, 0x68fcedb6l, 0x63f1e4b8l,
+    0xcadc31d7l, 0x10856342l, 0x40229713l, 0x2011c684l,
+    0x7d244a85l, 0xf83dbbd2l, 0x1132f9ael, 0x6da129c7l,
+    0x4b2f9e1dl, 0xf330b2dcl, 0xec52860dl, 0xd0e3c177l,
+    0x6c16b32bl, 0x99b970a9l, 0xfa489411l, 0x2264e947l,
+    0xc48cfca8l, 0x1a3ff0a0l, 0xd82c7d56l, 0xef903322l,
+    0xc74e4987l, 0xc1d138d9l, 0xfea2ca8cl, 0x360bd498l,
+    0xcf81f5a6l, 0x28de7aa5l, 0x268eb7dal, 0xa4bfad3fl,
+    0xe49d3a2cl, 0x0d927850l, 0x9bcc5f6al, 0x62467e54l,
+    0xc2138df6l, 0xe8b8d890l, 0x5ef7392el, 0xf5afc382l,
+    0xbe805d9fl, 0x7c93d069l, 0xa92dd56fl, 0xb31225cfl,
+    0x3b99acc8l, 0xa77d1810l, 0x6e639ce8l, 0x7bbb3bdbl,
+    0x097826cdl, 0xf418596el, 0x01b79aecl, 0xa89a4f83l,
+    0x656e95e6l, 0x7ee6ffaal, 0x08cfbc21l, 0xe6e815efl,
+    0xd99be7bal, 0xce366f4al, 0xd4099feal, 0xd67cb029l,
+    0xafb2a431l, 0x31233f2al, 0x3094a5c6l, 0xc066a235l,
+    0x37bc4e74l, 0xa6ca82fcl, 0xb0d090e0l, 0x15d8a733l,
+    0x4a9804f1l, 0xf7daec41l, 0x0e50cd7fl, 0x2ff69117l,
+    0x8dd64d76l, 0x4db0ef43l, 0x544daaccl, 0xdf0496e4l,
+    0xe3b5d19el, 0x1b886a4cl, 0xb81f2cc1l, 0x7f516546l,
+    0x04ea5e9dl, 0x5d358c01l, 0x737487fal, 0x2e410bfbl,
+    0x5a1d67b3l, 0x52d2db92l, 0x335610e9l, 0x1347d66dl,
+    0x8c61d79al, 0x7a0ca137l, 0x8e14f859l, 0x893c13ebl,
+    0xee27a9cel, 0x35c961b7l, 0xede51ce1l, 0x3cb1477al,
+    0x59dfd29cl, 0x3f73f255l, 0x79ce1418l, 0xbf37c773l,
+    0xeacdf753l, 0x5baafd5fl, 0x146f3ddfl, 0x86db4478l,
+    0x81f3afcal, 0x3ec468b9l, 0x2c342438l, 0x5f40a3c2l,
+    0x72c31d16l, 0x0c25e2bcl, 0x8b493c28l, 0x41950dffl,
+    0x7101a839l, 0xdeb30c08l, 0x9ce4b4d8l, 0x90c15664l,
+    0x6184cb7bl, 0x70b632d5l, 0x745c6c48l, 0x4257b8d0l
+  )
+
+  // Last round decryption sbox
+  def SBOX_INV = List(
+    0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
+    0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
+    0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
+    0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25,
+    0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92,
+    0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84,
+    0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06,
+    0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b,
+    0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73,
+    0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e,
+    0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b,
+    0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4,
+    0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
+    0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef,
+    0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
+    0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
+  )
+}
+
+class Aes64ZknPlugin(
+  val layer : LaneLayer,
+  val readAt : Int = 0,
+  val writeBackAt : Int = 2
+) extends ExecutionUnitElementSimple(layer){
+  val logic = during setup new Logic {
+    awaitBuild()
+    import SrcKeys._
+
+    val wb = newWriteback(ifp, writeBackAt)
+
+    assert(Riscv.XLEN.get == 64)
+    assert(writeBackAt >= readAt)
+
+    for(uop <- List(Rvk.AES64EDS, Rvk.AES64KS2)) {
+      val spec = layer(add(uop).uop)
+      spec.addRsSpec(RS1, readAt)
+      spec.addRsSpec(RS2, readAt)
+    }
+    /* TODO: AES64KS1I check */
+    for(uop <- List(Rvk.AES64IM, Rvk.AES64KS1I)) {
+      val spec = layer(add(uop).uop)
+      spec.addRsSpec(RS1, readAt)
+    }
+
+    uopRetainer.release()
+
+    def packBytes(bytes: Seq[Bits]) = {
+      val ret = Bits(bytes.length*8 bits)
+      for((byte, id) <- bytes.zipWithIndex) ret(id*8+7 downto id*8) := byte
+      ret
+    }
+
+    def bytesOf(that: Bits) = that.subdivideIn(8 bits)
+
+    def xtime(byte: Bits) = (byte(6 downto 0) ## B"0") ^ Mux(byte(7), B"x1b", B(0, 8 bits))
+    def gmul(byte: Bits, by: Int): Bits = {
+      val x1 = byte
+      val x2 = xtime(x1)
+      val x4 = xtime(x2)
+      val x8 = xtime(x4)
+      var ret = B(0, 8 bits)
+      if((by & 1) != 0) ret = ret ^ x1
+      if((by & 2) != 0) ret = ret ^ x2
+      if((by & 4) != 0) ret = ret ^ x4
+      if((by & 8) != 0) ret = ret ^ x8
+      ret
+    }
+
+    def mixColumnFwd(column: Bits) = {
+      val b = bytesOf(column)
+      packBytes(List(
+        gmul(b(0), 2) ^ gmul(b(1), 3) ^ b(2) ^ b(3),
+        b(0) ^ gmul(b(1), 2) ^ gmul(b(2), 3) ^ b(3),
+        b(0) ^ b(1) ^ gmul(b(2), 2) ^ gmul(b(3), 3),
+        gmul(b(0), 3) ^ b(1) ^ b(2) ^ gmul(b(3), 2)
+      ))
+    }
+
+    def mixColumnInv(column: Bits) = {
+      val b = bytesOf(column)
+      packBytes(List(
+        gmul(b(0), 0xe) ^ gmul(b(1), 0xb) ^ gmul(b(2), 0xd) ^ gmul(b(3), 0x9),
+        gmul(b(0), 0x9) ^ gmul(b(1), 0xe) ^ gmul(b(2), 0xb) ^ gmul(b(3), 0xd),
+        gmul(b(0), 0xd) ^ gmul(b(1), 0x9) ^ gmul(b(2), 0xe) ^ gmul(b(3), 0xb),
+        gmul(b(0), 0xb) ^ gmul(b(1), 0xd) ^ gmul(b(2), 0x9) ^ gmul(b(3), 0xe)
+      ))
+    }
+
+    def aes64ShiftRowsFwd(rs1: Bits, rs2: Bits) = {
+      val a = bytesOf(rs1)
+      val b = bytesOf(rs2)
+      packBytes(List(a(0), a(5), b(2), b(7), a(4), b(1), b(6), a(3)))
+    }
+
+    def aes64ShiftRowsInv(rs1: Bits, rs2: Bits) = {
+      val a = bytesOf(rs1)
+      val b = bytesOf(rs2)
+      packBytes(List(a(0), b(5), b(2), a(7), a(4), a(1), b(6), b(3)))
+    }
+
+    def aes64Im(rs1: Bits) = {
+      val columns = rs1.subdivideIn(32 bits)
+      mixColumnInv(columns(1)) ## mixColumnInv(columns(0))
+    }
+
+    def aes64Ks2(rs1: Bits, rs2: Bits) = {
+      val rs1Hi = rs1(63 downto 32)
+      val rs2Lo = rs2(31 downto 0)
+      val rs2Hi = rs2(63 downto 32)
+      val rLo = rs1Hi ^ rs2Lo
+      val rHi = rLo ^ rs2Hi
+      rHi ## rLo
+    }
+
+    def aes64RoundResult(decrypt: Bool, mix: Bool, subbed: Bits) = {
+      val columns = subbed.subdivideIn(32 bits)
+      val col0Fwd = mixColumnFwd(columns(0))
+      val col1Fwd = mixColumnFwd(columns(1))
+      val col0Inv = mixColumnInv(columns(0))
+      val col1Inv = mixColumnInv(columns(1))
+      val result = Bits(64 bits)
+      result := subbed
+      when(mix) {
+        result := Mux(decrypt, col1Inv ## col0Inv, col1Fwd ## col0Fwd)
+      }
+      result
+    }
+
+    def pickSboxByte(data: Bits, inverse: Bool) = Mux(inverse, data(31 downto 24), data(7 downto 0))
+    def pairByte(bytes: Seq[Bits], pair: UInt, upper: Boolean) = {
+      val offset = if(upper) 1 else 0
+      pair.mux(
+        0 -> bytes(0 + offset),
+        1 -> bytes(2 + offset),
+        2 -> bytes(4 + offset),
+        3 -> bytes(6 + offset)
+      )
+    }
+
+    def BANK0 = (TE0, SBOX_INV).zipped.map((te0, inv) => (te0.toLong) | (inv.toLong << 24))
+    def BANK1 = TD0
+    val rconValues = List(0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+
+    val onRead = new el.Execute(readAt){
+      val storage = Mem(Bits(32 bits), 512) initBigInt((BANK0 ++ BANK1).map(BigInt(_)))
+
+      val rs1 = up(el(IntRegFile, RS1))
+      val rs2 = up(el(IntRegFile, RS2))
+      val funct7 = Decode.UOP(31 downto 25)
+      val isEsm  = funct7 === B"0011011"
+      val isDs   = funct7 === B"0011101"
+      val isDsm  = funct7 === B"0011111"
+      val isKs2  = funct7 === B"0111111"
+      val isIm   = Decode.UOP(31 downto 20) === B"001100000000"
+      val isKs1i = Decode.UOP(31 downto 24) === B"00110001"
+      val isRound = !isKs2 && !isIm && !isKs1i
+      val needSbox = isRound || isKs1i
+      val decrypt = isDs || isDsm
+      val mix = isEsm || isDsm
+      val rnum = Decode.UOP(23 downto 20).asUInt
+
+      val shifted = Mux(decrypt, aes64ShiftRowsInv(rs1, rs2), aes64ShiftRowsFwd(rs1, rs2))
+      val ks1Word = rs1(63 downto 32)
+      val ks1Rotated = packBytes(List(ks1Word(15 downto 8), ks1Word(23 downto 16), ks1Word(31 downto 24), ks1Word(7 downto 0)))
+      val ks1Selected = Mux(rnum === U(10, 4 bits), ks1Word, ks1Rotated)
+      val shiftedBytes = bytesOf(shifted)
+      val ks1Bytes = bytesOf(ks1Selected)
+
+      val selected = isValid && SEL
+      val busy = RegInit(False)
+      val pair = Reg(UInt(2 bits)) init(0)
+      val lookupBytes = Reg(Vec(Bits(8 bits), 8))
+      val subBytes = Reg(Vec(Bits(8 bits), 8))
+      val decryptReg = Reg(Bool()) init(False)
+      val mixReg = Reg(Bool()) init(False)
+      val ks1iReg = Reg(Bool()) init(False)
+      val rnumReg = Reg(UInt(4 bits)) init(0)
+
+      val startLookupBytes = Vec(Bits(8 bits), 8)
+      for(byteId <- 0 until 8) {
+        startLookupBytes(byteId) := shiftedBytes(byteId)
+        if(byteId < 4) when(isKs1i) {
+          startLookupBytes(byteId) := ks1Bytes(byteId)
+        }
+      }
+
+      val startSbox = selected && !busy && needSbox
+      val lastPair = Mux(ks1iReg, U(1, 2 bits), U(3, 2 bits))
+      val responseValid = RegInit(False)
+      val responsePair = Reg(UInt(2 bits)) init(0)
+      val responseInverse = Reg(Bool()) init(False)
+      val unscheduleRequest = RegNext(isCancel).clearWhen(isReady).init(False)
+      val sboxDone = busy && responseValid && responsePair === lastPair && !unscheduleRequest
+      val issueNext = busy && responseValid && responsePair =/= lastPair && !unscheduleRequest
+
+      val issuePair = UInt(2 bits)
+      issuePair := Mux(startSbox, U(0, 2 bits), pair)
+      val issueBytes = (0 until 8).map(byteId => Mux(startSbox, startLookupBytes(byteId), lookupBytes(byteId)))
+      val issueByte0 = pairByte(issueBytes, issuePair, upper = false)
+      val issueByte1 = pairByte(issueBytes, issuePair, upper = true)
+      val issue = startSbox || issueNext
+      val issueInverse = Mux(startSbox, decrypt && !isKs1i, decryptReg && !ks1iReg)
+      val romAddress0 = U(False ## issueByte0)
+      val romAddress1 = U(False ## issueByte1)
+      val romData0 = storage.readSync(romAddress0, issue)
+      val romData1 = storage.readSync(romAddress1, issue)
+
+      responseValid := issue
+      when(issue) {
+        responsePair := issuePair
+        responseInverse := issueInverse
+      }
+      when(startSbox) {
+        busy := True
+        pair := 1
+        decryptReg := decrypt
+        mixReg := mix
+        ks1iReg := isKs1i
+        rnumReg := rnum
+        for(byteId <- 0 until 8) {
+          lookupBytes(byteId) := startLookupBytes(byteId)
+          subBytes(byteId) := 0
+        }
+      }
+      when(issueNext) {
+        pair := pair + 1
+      }
+      when(sboxDone || unscheduleRequest) {
+        busy := False
+      }
+
+      val currentSubBytes = Vec(Bits(8 bits), 8)
+      for(byteId <- 0 until 8) currentSubBytes(byteId) := subBytes(byteId)
+      val responseByte0 = pickSboxByte(romData0, responseInverse)
+      val responseByte1 = pickSboxByte(romData1, responseInverse)
+      def capturePair(pairId: Int): Unit = {
+        currentSubBytes(pairId*2) := responseByte0
+        currentSubBytes(pairId*2 + 1) := responseByte1
+        subBytes(pairId*2) := responseByte0
+        subBytes(pairId*2 + 1) := responseByte1
+      }
+      when(responseValid && !unscheduleRequest) {
+        switch(responsePair) {
+          is(0) { capturePair(0) }
+          is(1) { capturePair(1) }
+          is(2) { capturePair(2) }
+          is(3) { capturePair(3) }
+        }
+      }
+
+      val subbed = packBytes((0 until 8).map(currentSubBytes(_)))
+      val sboxRoundResult = aes64RoundResult(decryptReg, mixReg, subbed)
+      val ks1Subword = subbed(31 downto 0)
+      val rcon = Vec(rconValues.map(U(_, 8 bits)))(rnumReg)
+      val ks1WithRcon = Bits(32 bits)
+      ks1WithRcon := ks1Subword
+      ks1WithRcon(7 downto 0) := ks1Subword(7 downto 0) ^ rcon.asBits
+
+      val sboxResult = Mux(ks1iReg, ks1WithRcon ## ks1WithRcon, sboxRoundResult)
+      val directResult = Bits(64 bits)
+      directResult := 0
+      when(isKs2) {
+        directResult := aes64Ks2(rs1, rs2)
+      }
+      when(isIm) {
+        directResult := aes64Im(rs1)
+      }
+      val result = Bits(64 bits)
+      result := Mux(sboxDone, sboxResult, directResult)
+
+      val CALC = insert(result)
+      el.freezeWhen(selected && needSbox && !sboxDone && !unscheduleRequest)
+    }
+
+    val onWb = new el.Execute(writeBackAt){
+      wb.valid := SEL
+      wb.payload := onRead.CALC
+    }
   }
 
   // Encryption table which solve a single byte sbox + column mix. Used for all rounds
