@@ -183,17 +183,17 @@ trait CsrService {
     reads += CsrOnReadData(bitOffset, converted)
   }
 
-  def write[T <: Data](value : T, csrId : Int, bitOffset : Int = 0) : T = {
-    onWrite(csrId, true){ value.assignFromBits(bus.write.bits(bitOffset, widthOf(value) bits)) }
+  def write[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : T = {
+    onWrite(csrFilter, true){ value.assignFromBits(bus.write.bits(bitOffset, widthOf(value) bits)) }
     value
   }
   def writeWhen[T <: Data](value : T, cond : Bool, csrId : Int, bitOffset : Int = 0) : T = {
     onWrite(csrId, true){ when(cond) { value.assignFromBits(bus.write.bits(bitOffset, widthOf(value) bits)) }}
     value
   }
-  def readWrite[T <: Data](value : T, csrId : Int, bitOffset : Int = 0) : T = {
-    read(value, csrId, bitOffset)
-    write(value, csrId, bitOffset)
+  def readWrite[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : T = {
+    read(value, csrFilter, bitOffset)
+    write(value, csrFilter, bitOffset)
     value
   }
 

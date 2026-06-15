@@ -9,6 +9,7 @@ import vexiiriscv.execute.{CsrAccessPlugin, CsrListFilter, CsrRamAllocation, Csr
 import vexiiriscv.riscv.{CSR, PrivilegeMode, Riscv}
 
 import scala.collection.mutable.ArrayBuffer
+import vexiiriscv.riscv.IndirectCSR
 
 /**
  * This plugin implement the performance counters in a very tricky way to save area. The RISC-V spec specified 64 bits per counter, and that is kinda expensive to implement FPGA.
@@ -20,7 +21,8 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
                                var bufferWidth : Int = 8,
                                var withSmcntrpmf : Boolean = true,
                                var withScountovf : Boolean = true,
-                               var withShlcofideleg : Boolean = false) extends FiberPlugin with PerformanceCounterService{
+                               var withShlcofideleg : Boolean = false,
+                               var withSmcdelegSsccfg : Boolean = false) extends FiberPlugin with PerformanceCounterService{
   def counterCount = 2 + additionalCounterCount
 
   case class Spec(id : Int, event : Bool)
@@ -32,6 +34,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
     val ram = host[CsrRamPlugin]
     val priv = host[PrivilegedPlugin]
     val tp = host[TrapPlugin]
+    val indirect = withSmcdelegSsccfg generate host[IndirectCsrPlugin]
     val csrRetainer = csr.csrLock()
     val ramCsrRetainer = ram.csrLock()
     val ramPortRetainer = ram.portLock()
@@ -54,6 +57,12 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
     val privValue = priv.getPrivilege(0)
     val rawPrivValue = PrivilegeMode.mode(privValue)
 
+    val counterDelegate = RegInit(False)
+    if(withSmcdelegSsccfg) Riscv.XLEN.get match {
+      case 32 => csr.readWrite(counterDelegate, CSR.MENVCFGH, 28)
+      case 64 => csr.readWrite(counterDelegate, CSR.MENVCFG, 60)
+    }
+
     class Counter(withOverflow: Boolean = true) extends Area{
       val alloc = ram.ramAllocate(if (withHigh) 2 else 1)
       val value = Reg(UInt(bufferWidth bits)).init(0)
@@ -65,6 +74,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
       val scounteren = priv.p.withSupervisor generate csr.readWrite(RegInit(False), CSR.SCOUNTEREN, counterId)
       val hcounteren = priv.p.withHypervisor generate csr.readWrite(RegInit(False), CSR.HCOUNTEREN, counterId)
       val mcountinhibit = csr.readWrite(RegInit(False), CSR.MCOUNTINHIBIT, counterId)
+      val delegated = counterDelegate && mcounteren
 
       val MINH    = RegInit(False)
       val SINH    = RegInit(False)
@@ -77,26 +87,50 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
 
       def mappingCfgCsr(eb: Int, eo: Int) = new Area {
         if (withOverflow) ofRead clearWhen(!mcounteren && rawPrivValue =/= PrivilegeMode.M)
+        val mapping = ArrayBuffer(62 - eo -> MINH)
 
-        if (withOverflow) csr.readWrite(eb, 63-eo -> OF)
-        csr.readWrite(eb, 62-eo -> MINH)
+        if (withOverflow) mapping += 63 - eo -> OF
         inhibit.setWhen(privValue === PrivilegeMode.M && MINH)
         if (priv.p.withSupervisor) {
-          csr.readWrite(eb, 61 - eo -> SINH)
+          mapping += 61 - eo -> SINH
           inhibit.setWhen(privValue === PrivilegeMode.S && SINH)
         }
         if (priv.p.withUser) {
-          csr.readWrite(eb, 60 - eo -> UINH)
+          mapping += 60 - eo -> UINH
           inhibit.setWhen(privValue === PrivilegeMode.U && UINH)
         }
         if (priv.p.withHypervisor) {
-          csr.readWrite(eb, 59 - eo -> VSINH, 58 - eo -> VUINH)
+          mapping += 59 - eo -> VSINH
+          mapping += 58 - eo -> VUINH
           inhibit.setWhen(privValue === PrivilegeMode.VS && VSINH)
           inhibit.setWhen(privValue === PrivilegeMode.VU && VUINH)
           if (withOverflow) ofRead clearWhen(!hcounteren && PrivilegeMode.isGuest(privValue))
         }
+
+        csr.readWrite(eb, mapping.toSeq :_*)
+
+        if (withSmcdelegSsccfg && priv.p.withSupervisor) {
+          val (id, csrId) = ebToIndirectId(eb)
+          val filter = indirect.logic.harts(0).s.csrFilter(id, csrId, delegated)
+
+          for ((offset, flag) <- mapping.filter(_._1 != 62 - eo)) {
+            csr.readWrite(flag, filter, offset)
+          }
+
+          csr.read(mcountinhibit && delegated, CSR.SCOUNTINHIBIT, counterId)
+          csr.writeWhen(mcountinhibit, delegated, CSR.SCOUNTINHIBIT, counterId)
+        }
       }
 
+      def ebToIndirectId(eb: Int) = eb match {
+        case x if x == CSR.MCYCLECFG => (IndirectCSR.cycle, CSR.SIREG2)
+        case x if x == CSR.MCYCLECFGH => (IndirectCSR.cycle, CSR.SIREG5)
+        case x if x == CSR.MINSTRETCFG => (IndirectCSR.instret, CSR.SIREG2)
+        case x if x == CSR.MINSTRETCFGH => (IndirectCSR.instret, CSR.SIREG5)
+        case x if x >= CSR.MHPMCOUNTER3 && x < CSR.MHPMCOUNTER3 + 29 => (IndirectCSR.hpmcounter3, CSR.SIREG2)
+        case x if x >= CSR.MHPMCOUNTER3H && x < CSR.MHPMCOUNTER3H + 29 => (IndirectCSR.hpmcounter3, CSR.SIREG5)
+        case _ => ???
+      }
     }
     case class Mapping(csrId : Int, alloc : CsrRamAllocation, offset : Int)
     val mappings = ArrayBuffer[Mapping]()
@@ -117,6 +151,10 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
           cycle.mappingCfgCsr(CSR.MCYCLECFGH, 32)
           instret.mappingCfgCsr(CSR.MINSTRETCFGH, 32)
           csr.allowCsr(CsrListFilter(List(CSR.MCYCLECFG, CSR.MINSTRETCFG)))
+          if (withSmcdelegSsccfg && priv.p.withSupervisor) {
+            csr.allowCsr(indirect.logic.harts(0).s.csrFilter(IndirectCSR.cycle, CSR.SIREG2, cycle.delegated))
+            csr.allowCsr(indirect.logic.harts(0).s.csrFilter(IndirectCSR.instret, CSR.SIREG2, instret.delegated))
+          }
         }
         case 64 => {
           cycle.mappingCfgCsr(CSR.MCYCLECFG, 0)
@@ -401,6 +439,60 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
         }
         when(csr.bus.decode.address(9 downto 8) < PrivilegeMode.M && hyperOK){
           csr.bus.decode.doVirtual()
+        }
+      }
+
+      if (withSmcdelegSsccfg && priv.implementSupervisor) {
+        val s = indirect.logic.harts(0).s
+
+        // Range check for 0x40 <= iselect <= 0x5f
+        val range = s.iselect(4 downto 0)
+        val hit = s.iselect.dropLow(5) === 0x02
+
+        val cycle = new Area {
+          val counterHit = hit && range === 0x0 && counters.cycle.delegated
+
+          csr.remapWhen(CSR.SIREG, CSR.MCYCLE, counterHit)
+          if (Riscv.XLEN.get == 32) csr.remapWhen(CSR.SIREG4, CSR.MCYCLEH, counterHit)
+        }
+
+        val instret = new Area {
+          val counterHit = hit && range === 0x2 && counters.instret.delegated
+
+          csr.remapWhen(CSR.SIREG, CSR.MINSTRET, counterHit)
+          if (Riscv.XLEN.get == 32) csr.remapWhen(CSR.SIREG2, CSR.MINSTRETH, counterHit)
+        }
+
+        val hpm = for((c, i) <- counters.additionals.zipWithIndex) yield new Area {
+          val id = i + 3
+          val counterHit = hit && range === id && c.delegated
+
+          csr.remapWhen(CSR.SIREG, CSR.MHPMCOUNTER0 + id, counterHit)
+          if (Riscv.XLEN.get == 32) csr.remapWhen(CSR.SIREG4, CSR.MHPMCOUNTER0H + id, counterHit)
+        }
+
+        /* TODO: VSIREG* */
+        if (priv.implementHypervisor) {
+          csr.onDecode(CSR.SCOUNTINHIBIT) {
+            when (PrivilegeMode.isGuest(privilege)) {
+              csr.bus.decode.doException()
+              csr.bus.decode.doVirtual()
+            }
+          }
+
+          if (withScountovf) {
+            csr.onDecode(CSR.SCOUNTOVF) {
+              when (PrivilegeMode.isGuest(privilege)) {
+                csr.bus.decode.doException()
+                csr.bus.decode.doVirtual()
+              }
+              when (!counterDelegate) {
+                csr.bus.decode.doHostDenied()
+              }
+            }
+          }
+
+          val vs = indirect.logic.harts(0).vs
         }
       }
     }

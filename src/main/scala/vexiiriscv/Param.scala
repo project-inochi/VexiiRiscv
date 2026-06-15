@@ -580,6 +580,8 @@ class ParamSimple() {
   def withSxaia = checkISA("smaia") || checkISA("ssaia")
   def withSscsrind = checkISA("sscsrind")
   def withSmcntrpmf = checkISA("smcntrpmf")
+  def withSmcdeleg = checkISA("smcdeleg")
+  def withSsccfg = checkISA("ssccfg")
 
   def withMul = checkISA("m") || checkISA("zmmul")
   def withDiv = checkISA("m")
@@ -605,6 +607,7 @@ class ParamSimple() {
 
     if(privParam.imsicInterrupts > 0) addISA("smaia", "ssaia")
     if(withSxaia) addISA("smcsrind", "sscsrind")
+    if(withSmcdeleg || withSsccfg) addISA("smcdeleg", "ssccfg", "zicntr", "smcsrind", "sscsrind", "s", "u")
 
     if(!checkISA("s")) {
       removeISA("sscsrind", "ssaia", "sstc")
@@ -1180,7 +1183,8 @@ class ParamSimple() {
       additionalCounterCount  = additionalPerformanceCounters,
       withSmcntrpmf           = withSmcntrpmf,
       withScountovf           = withSscofpmf,
-      withShlcofideleg        = withShlcofideleg
+      withShlcofideleg        = withShlcofideleg,
+      withSmcdelegSsccfg      = withSmcdeleg && withSsccfg
     )
     plugins += new CsrAccessPlugin(early0, writeBackKey =  if(lanes == 1) "lane0" else "lane1")
     if(withIndirectCsr) plugins += new IndirectCsrPlugin(withSscsrind, privParam.withHypervisor && withSscsrind)

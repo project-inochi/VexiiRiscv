@@ -211,6 +211,7 @@ object CSR {
   val STVEC       = 0x105
   val SCOUNTEREN  = 0x106
   val SENVCFG     = 0x10A
+  val SCOUNTINHIBIT = 0x120
   val SSCRATCH    = 0x140
   val SEPC        = 0x141
   val SCAUSE      = 0x142
@@ -221,9 +222,10 @@ object CSR {
   val SIREG       = 0x151
   val SIREG2      = 0x152
   val SIREG3      = 0x153
-  val SIREG4      = 0x154
-  val SIREG5      = 0x155
-  val SIREG6      = 0x156
+  val SIPH        = 0X154
+  val SIREG4      = 0x155
+  val SIREG5      = 0x156
+  val SIREG6      = 0x157
   val STOPEI      = 0x15C
   val STIMECMPH   = 0x15D
   val SATP        = 0x180
@@ -326,6 +328,9 @@ object InterruptInfo {
 }
 
 object IndirectCSR{
+  val cycle       = 0x40
+  val instret     = 0x42
+  val hpmcounter3 = 0x43
   val eidelivery  = 0x70
   val eithreshold = 0x72
   val eip0        = 0x80
