@@ -69,6 +69,7 @@ class RegressionSingle(compiled : SimCompiled[VexiiRiscv],
   val rvf = dut.database(Riscv.RVF)
   val rvd = dut.database(Riscv.RVD)
   val rva = dut.database(Riscv.RVA)
+  val rvh = dut.database(Riscv.RVH)
   val rvzba = dut.database(Riscv.RVZba)
   val rvzbb = dut.database(Riscv.RVZbb)
   val rvzbc = dut.database(Riscv.RVZbc)
@@ -451,7 +452,7 @@ class RegressionSingle(compiled : SimCompiled[VexiiRiscv],
       help("help").text("prints this usage text")
       t.addOptions(this)
     }.parse(args.args, ()).nonEmpty)
-    
+
     val testPath = new File(compiled.simConfig.getTestPath(t.testName.get))
     val passFile = new File(testPath, "PASS")
     val failFile = new File(testPath, "FAIL")
@@ -526,7 +527,7 @@ object RegressionSingle extends App{
           throw t;
         }
       }
-      FileUtils.forceDelete(f)
+      FileUtils.deleteQuietly(f)
     }
   }
 
@@ -556,4 +557,3 @@ object RegressionSingle extends App{
     case e : Throwable => System.exit(1)
   }
 }
-
