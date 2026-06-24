@@ -1098,6 +1098,7 @@ class ParamSimple() {
       )
     }
     if(lsuL1Enable){
+      val needLlc = withRvcbm && (withRvcbmLlc || lsuL1Coherency)
       plugins += new LsuPlugin(
         timingParameter = withRvh match {
           case true => lsuHypervisorTiming
@@ -1110,7 +1111,7 @@ class ParamSimple() {
         storeBufferOps = lsuStoreBufferOps,
         softwarePrefetch = lsuSoftwarePrefetch,
         withCbm = withRvcbm,
-        withLlcFlush = withRvcbmLlc,
+        withLlcFlush = needLlc,
         pmpPortParameter = lsuL1PmpParam.offset(withRvh.toInt),
         translationStorageParameter = lsuTsp,
         translationPortParameter = withMmu match {
@@ -1128,7 +1129,7 @@ class ParamSimple() {
         wayCount       = lsuL1Ways,
         withBypass     = withLsuBypass,
         withCoherency  = lsuL1Coherency,
-        withCbm        = withRvcbm && !withRvcbmLlc,
+        withCbm        = withRvcbm && !needLlc,
         bootMemClear = bootMemClear,
         tagsReadAsync  = lsuL1TagsReadAsync,
         timingParameter = withRvh match {
