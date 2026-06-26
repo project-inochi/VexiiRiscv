@@ -21,6 +21,7 @@ trait VexiiRiscvCross extends SbtModule with CrossSbtModule {
     mvn"org.yaml:snakeyaml:1.8",
     mvn"net.fornwall:jelf:0.7.0",
     mvn"org.scream3r:jssc:2.8.0",
+    mvn"com.google.code.gson:gson:2.10.1",
   )
 
   override def moduleDir = super.moduleDir / os.up

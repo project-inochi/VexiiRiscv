@@ -20,6 +20,7 @@ def rootGen() = {
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % "3.2.17",
       "org.yaml" % "snakeyaml" % "1.8",
+      "com.google.code.gson" % "gson" % "2.10.1",
       "net.fornwall" % "jelf" % "0.7.0",
       "org.scream3r" % "jssc" % "2.8.0"
     ),
