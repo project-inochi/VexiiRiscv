@@ -88,7 +88,7 @@ case class PrivilegedParam(var withSupervisor : Boolean,
     assert((imsicInterrupts == 0) || (isPow2(imsicInterrupts) && imsicInterrupts >= 64 && imsicInterrupts <= 2048))
     assert(guestExternalInterruptFiles < 64)
     assert(((guestExternalInterruptFiles == 0 && !withSsaia) || (withGuestImsic && withSsaia)) || !withHypervisor)
-    assert(!withHypervisor || (withSupervisor && withRdTime))
+    assert(!withHypervisor || withSupervisor)
     if (withHypervisor) {
       if (withSsaia) {
         assert(withGuestImsic)
