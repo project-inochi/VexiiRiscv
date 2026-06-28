@@ -466,15 +466,27 @@ class Soc(c : SocConfig) extends Component {
         val llcLsuPlugins = vexiis.flatMap(_.plugins.collect {
           case p : LsuPlugin if p.withLlcFlush => p
         })
-        assert(llcLsuPlugins.isEmpty || withL2, "Hub-only coherent Zicbom is unsupported; enable L2 so CBO can use the coherent CacheFiber FlushBus.")
         val llcFlushAddressWidth = vexiiParam.xlen max vexiiParam.physicalWidth
         val flushParam = llcLsuPlugins.nonEmpty generate FlushParam(llcFlushAddressWidth, log2Up(llcLsuPlugins.size))
 
         val hub = (withCoherency && !withL2) generate new Area {
-          val hub = new HubFiber()
+          val hub = new HubFiber(flushBusParam = flushParam)
           hub.up << cBus
           hub.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
           hub.down.forceDataWidth(mainDataWidth)
+          if(llcLsuPlugins.nonEmpty) {
+            val arbiter = new FlushArbiter(flushParam, llcLsuPlugins.size)
+            hub.flush.cmd << arbiter.io.output.cmd
+            arbiter.io.output.rsp << hub.flush.rsp
+
+            Fiber build new Area {
+              val llcBuses = llcLsuPlugins.map(_.logic.llcBus)
+              for((input, bus) <- (arbiter.io.inputs, llcBuses).zipped) {
+                input.cmd << bus.cmd
+                bus.rsp << input.rsp
+              }
+            }
+          }
           mBus << hub.down
         }
 
