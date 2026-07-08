@@ -119,6 +119,7 @@ object ExtensionList {
     E("smcntrpmf"),
     E("smaia").depend("smcsrind"),
     E("smcsrind"),
+    E("smepmp"),
   )
 
   val indexed = supported.map(e => e.name -> e).toMap

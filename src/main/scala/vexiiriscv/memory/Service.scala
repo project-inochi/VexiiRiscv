@@ -161,6 +161,7 @@ trait PmpService extends Area {
   val portsLock = Retainer()
   def createPmpPort(nodes: Seq[NodeBaseApi],
                     physicalAddress: Payload[UInt],
+                    size: NodeBaseApi => UInt,
                     forceCheck: NodeBaseApi => Bool,
                     read: NodeBaseApi => Bool,
                     write: NodeBaseApi => Bool,

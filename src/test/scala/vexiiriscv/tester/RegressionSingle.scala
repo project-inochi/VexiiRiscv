@@ -342,12 +342,25 @@ class RegressionSingle(compiled : SimCompiled[VexiiRiscv],
   priv.filter(_.p.withSupervisor).foreach(_ => regulars ++= List("supervisor"))
   if(mmu.nonEmpty) regulars ++= List(s"mmu_sv${if(xlen == 32) 32 else 39}")
   if(pmp.get.p.pmpSize > 4 && priv.get.p.withSupervisor) regulars ++= List(s"pmp")
+  val withSmepmpRegular = pmp.get.p.pmpSize > 4 &&
+    priv.get.p.withSupervisor &&
+    priv.get.p.withUser &&
+    mmu.nonEmpty &&
+    pmp.get.p.withSmepmp
 
   if(config.regular) for(name <- regulars){
     val args = newArgs()
     args.loadElf(new File(nsf, s"baremetal/$name/build/$arch/$name.elf"))
     args.failAfter(600000000)
     args.name(s"regular/$name")
+  }
+
+  if(config.regular && withSmepmpRegular) {
+    val args = newArgs()
+    args.loadElf(new File(nsf, s"baremetal/smepmp/build/$arch/smepmp.elf"))
+    args.failAfter(600000000)
+    args.name(s"regular/smepmp")
+    args.noRvlsCheck()
   }
 
   if(rvzcbm && dut.host.get[LsuL1Plugin].map(p => !p.withCoherency).getOrElse(true)) {

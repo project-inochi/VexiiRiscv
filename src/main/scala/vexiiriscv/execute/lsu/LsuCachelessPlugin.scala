@@ -244,6 +244,7 @@ class LsuCachelessPlugin(var layer : LaneLayer,
     val pmpPort = ps.createPmpPort(
       nodes = List.tabulate(forkAt+1)(elp.execute(_).down),
       physicalAddress = stpk.TRANSLATED,
+      size = _(SIZE),
       forceCheck = _ => False,
       read = e => e(LOAD) || (e(EXECUTE) && e(GUEST)),
       write = _(STORE),
@@ -426,6 +427,7 @@ class LsuCachelessPlugin(var layer : LaneLayer,
       }
 
       WITH_RSP := bus.cmd.valid || cmdSent
+      /* FIXME: no PMP check when submitting MMU request */
       val access = dbusAccesses.nonEmpty generate new Area {
         assert(dbusAccesses.size == 1)
         val allowIt = !(isValid && SEL) && !cmdSent

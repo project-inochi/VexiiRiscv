@@ -205,6 +205,8 @@ object CSR {
 
   val PMPCFG = 0x3a0
   val PMPADDR = 0x3b0
+  val MSECCFG = 0x747
+  val MSECCFGH = 0x757
 
   val SSTATUS     = 0x100
   val SIE         = 0x104

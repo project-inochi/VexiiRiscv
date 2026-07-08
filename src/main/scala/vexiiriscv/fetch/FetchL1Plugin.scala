@@ -386,6 +386,7 @@ class FetchL1Plugin(var translationStorageParameter: Any,
     val pmpPort = ps.createPmpPort(
       nodes = List.tabulate(ctrlAt+1)(pp.fetch(_).down),
       physicalAddress = stpk.TRANSLATED,
+      size = _ => U(log2Up(Fetch.WORD_WIDTH / 8)),
       forceCheck = _ => False,
       read = _ => False,
       write = _ => False,
@@ -681,4 +682,3 @@ class FetchL1Plugin(var translationStorageParameter: Any,
   val regions = Handle[ArrayBuffer[PmaRegion]]()
   val pmaBuilder = during build new PmaLogic(logic.ctrl.pmaPort, regions.filter(_.isExecutable))
 }
-

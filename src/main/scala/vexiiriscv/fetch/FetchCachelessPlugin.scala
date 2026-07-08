@@ -139,6 +139,7 @@ class FetchCachelessPlugin(var wordWidth : Int,
     val pmpPort = ps.createPmpPort(
       nodes = List.tabulate(joinAt+1)(pp.fetch(_).down),
       physicalAddress = stpk.TRANSLATED,
+      size = _ => U(log2Up(Fetch.WORD_WIDTH / 8)),
       forceCheck = _ => False,
       read = _ => False,
       write = _ => False,

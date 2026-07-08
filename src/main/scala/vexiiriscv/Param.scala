@@ -205,7 +205,8 @@ class ParamSimple() {
     pmpSize = 0,
     granularity = 4096,
     withTor = true,
-    withNapot = true
+    withNapot = true,
+    withSmepmp = false
   )
 
   var fetchNoL1PmpParam = new PmpPortParameter(
@@ -577,6 +578,11 @@ class ParamSimple() {
     if(extension.withRdTime) privParam.withRdTime = true
     if(extension.withSsaia) privParam.withSsaia = true
     if(extension.withRvc) withAlignerBuffer = true
+    pmpParam.withSmepmp = extension.withSmepmp
+    if(pmpParam.withSmepmp && pmpParam.pmpSize <= 0) {
+      Console.err.println("Smepmp requires --pmp-size to be greater than zero")
+      throw new IllegalArgumentException("Smepmp requires --pmp-size to be greater than zero")
+    }
   }
 
   // Generate a human readable name from most of the supported configuration
@@ -658,6 +664,7 @@ class ParamSimple() {
     opt[Unit]("with-rvZcbm") action { (v, c) => addISA("zicbom"); }
     opt[Unit]("with-rvZcbm-llc") action { (v, c) => addISA("zicbom"); withRvcbmLlc = true }
     opt[Unit]("with-rvZknAes") action { (v, c) => addISA("zkne", "zknd") }
+    opt[Unit]("with-smepmp") action { (v, c) => addISA("smepmp") }
     opt[Unit]("with-sxaia") action { (v, c) => addISA("smaia", "ssaia") }
     opt[Int]("imsic-interrupt-number") action { (v, c) => privParam.imsicInterrupts = v }
     opt[Int]("guest-external-interrupt-file-number") action { (v, c) => privParam.guestExternalInterruptFiles = v }
