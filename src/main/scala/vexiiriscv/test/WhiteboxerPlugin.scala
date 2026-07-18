@@ -10,6 +10,7 @@ import vexiiriscv.decode.{Decode, DecodePipelinePlugin, DecoderPlugin}
 import vexiiriscv.execute._
 import vexiiriscv.execute.lsu._
 import vexiiriscv.fetch.{Fetch, FetchPipelinePlugin}
+import vexiiriscv.memory.TranslatedDBusAccessPlugin
 import vexiiriscv.misc.{PipelineBuilderPlugin, PrivilegedPlugin, TrapPlugin}
 import vexiiriscv.prediction.{BtbPlugin, LearnCmd, LearnPlugin}
 import vexiiriscv.regfile.{RegFileWrite, RegFileWriter, RegFileWriterService}
@@ -214,7 +215,7 @@ class WhiteboxerPlugin(withOutputs : Boolean) extends FiberPlugin{
 
       val lp = host.get[LsuPlugin] map (p => new Area {
         val c = p.logic.onWb
-        fire := c.storeFire
+        fire := c.storeFire && c(p.logic.FROM_LSU)
         hartId := c(Global.HART_ID)
         uopId := c(Decode.UOP_ID)
         size := c(AguPlugin.SIZE)
@@ -262,9 +263,51 @@ class WhiteboxerPlugin(withOutputs : Boolean) extends FiberPlugin{
       })
       val lp = host.get[LsuPlugin] map (p => new Area {
         val c = p.logic.onWb
-        fire := c.storeBroadcast
+        fire := c.storeBroadcast && (c(p.logic.FROM_LSU) || c(p.logic.FROM_WB))
         hartId := c(Global.HART_ID)
         storeId := c(Decode.STORE_ID)
+      })
+    }
+
+    val pteUpdateBroadcast = new Area {
+      val fire = Bool()
+      val hartId = Global.HART_ID()
+      val storeId = Decode.STORE_ID()
+      val size = UInt(2 bits)
+      val address = Global.PHYSICAL_ADDRESS()
+      val data = Bits(Riscv.XLEN bits)
+      SimPublic(fire, hartId, storeId, size, address, data)
+
+      fire := False
+      hartId := U(0).resized
+      storeId := U(0).resized
+      size := U(0).resized
+      address := U(0).resized
+      data := B(0, Riscv.XLEN bits)
+
+      val tap = host.get[TranslatedDBusAccessPlugin].filter(_.dbusUpdates.nonEmpty).map(p => new Area {
+        val bus = p.logic.updateBus
+        val nextId = Reg(Decode.STORE_ID()) init(U(1 << (Decode.STORE_ID_WIDTH-1), Decode.STORE_ID_WIDTH bits))
+        val pendingId = Reg(Decode.STORE_ID())
+        val pendingAddress = Reg(Global.PHYSICAL_ADDRESS())
+        val pendingSize = Reg(UInt(2 bits))
+        val pendingData = Reg(Bits(Riscv.XLEN bits))
+
+        when(bus.cmd.fire) {
+          pendingId := nextId
+          pendingAddress := bus.cmd.address
+          pendingSize := bus.cmd.size
+          pendingData := bus.cmd.data
+          nextId := nextId + 1
+        }
+
+        when(bus.rsp.valid && !bus.rsp.error && bus.rsp.updated) {
+          fire := True
+          storeId := pendingId
+          size := pendingSize
+          address := pendingAddress
+          data := pendingData
+        }
       })
     }
 
@@ -307,6 +350,7 @@ class WhiteboxerPlugin(withOutputs : Boolean) extends FiberPlugin{
       val storeCommit = new StoreCommitProxy()
       val storeConditional = new StoreConditionalProxy()
       val storeBroadcast = new StoreBroadcastProxy()
+      val pteUpdateBroadcast = new PteUpdateBroadcastProxy()
       val learns = self.prediction.learns.map(learn => new LearnProxy(learn)).toArray
       val perf = new PerfProxy()
       val trap = self.trap.ports.indices.map(new TrapProxy(_)).toArray
@@ -461,6 +505,15 @@ class WhiteboxerPlugin(withOutputs : Boolean) extends FiberPlugin{
       val fire = storeBroadcast.fire.simProxy()
       val hartId = storeBroadcast.hartId.simProxy()
       val storeId = storeBroadcast.storeId.simProxy()
+    }
+
+    class PteUpdateBroadcastProxy {
+      val fire = pteUpdateBroadcast.fire.simProxy()
+      val hartId = pteUpdateBroadcast.hartId.simProxy()
+      val storeId = pteUpdateBroadcast.storeId.simProxy()
+      val size = pteUpdateBroadcast.size.simProxy()
+      val address = pteUpdateBroadcast.address.simProxy()
+      val data = pteUpdateBroadcast.data.simProxy()
     }
 
     class LearnProxy(port: Flow[LearnCmd]) {

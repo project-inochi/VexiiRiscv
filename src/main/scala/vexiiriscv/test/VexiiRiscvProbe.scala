@@ -706,6 +706,20 @@ class VexiiRiscvProbe(cpu : VexiiRiscv, kb : Option[konata.Backend], var withRvl
     }
   }
 
+  def checkPteUpdates(): Unit = {
+    val pteUpdate = proxies.pteUpdateBroadcast
+    if (pteUpdate.fire.toBoolean) {
+      val hartId = pteUpdate.hartId.toInt
+      val hart = harts(hartId)
+      val sqId = pteUpdate.storeId.toLong
+      val address = pteUpdate.address.toLong
+      val bytes = 1 << pteUpdate.size.toInt
+      val data = pteUpdate.data.toLong
+      backends.foreach(_.storeExecute(hart.hartId, sqId, address, bytes, data))
+      backends.foreach(_.storeBroadcast(hart.hartId, sqId))
+    }
+  }
+
   def checkBroadcasts(): Unit = {
     import proxies.storeBroadcast
     if (storeBroadcast.fire.toBoolean) {
@@ -731,6 +745,7 @@ class VexiiRiscvProbe(cpu : VexiiRiscv, kb : Option[konata.Backend], var withRvl
   cpu.clockDomain.onSamplings {
     if(enabled) {
       checkPipelines()
+      checkPteUpdates()
       checkCommits()
       if(!autoStoreBroadcast) checkBroadcasts()
       checkTraps()
