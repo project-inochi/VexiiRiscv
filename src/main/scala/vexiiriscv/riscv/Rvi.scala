@@ -96,9 +96,11 @@ object Rvi extends AreaObject {
 
   val LRW                = TypeILQ(M"00010--00000-----010-----0101111")
   val SCW                = TypeASQ(M"00011------------010-----0101111")
+  val AMOCASW            = TypeCASQ(M"00101------------010-----0101111")
 
   val LRD                = TypeILQ(M"00010--00000-----011-----0101111")
   val SCD                = TypeASQ(M"00011------------011-----0101111")
+  val AMOCASD            = TypeCASQ(M"00101------------011-----0101111")
 
   val CBM_CLEAN          = TypeCmb(M"000000000001_-----_010_00000_0001111")
   val CBM_FLUSH          = TypeCmb(M"000000000010_-----_010_00000_0001111")
@@ -178,9 +180,11 @@ object Rvi extends AreaObject {
 
   loadSpec(LRW) = LoadSpec(32, true)
   loadSpec(SCW) = LoadSpec(8, true) //8 bits to allow sc to only write the 8 lsb (less logic)
+  loadSpec(AMOCASW) = LoadSpec(32, true)
 
   loadSpec(LRD) = LoadSpec(64, true)
   loadSpec(SCD) = LoadSpec(8, true)
+  loadSpec(AMOCASD) = LoadSpec(64, true)
 
   loadSpec(AMOSWAPW) = LoadSpec(32, true)
   loadSpec(AMOADDW) = LoadSpec(32, true)

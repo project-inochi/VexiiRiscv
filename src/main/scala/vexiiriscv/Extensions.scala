@@ -94,6 +94,7 @@ object ExtensionList {
     E("zmmul").withCondReport(!_.contains("m")),
     E("zaamo"),
     E("zalrsc"),
+    E("zacas").depend("zaamo"),
     E("zba"),
     E("zbb"),
     E("zbc").imply("zbkc"),

@@ -72,6 +72,7 @@ case class LsuTimingParameter(var addressAt : Int = 0,
 class LsuPlugin(var layer : LaneLayer,
                 var withZaamo : Boolean,
                 var withZalrsc : Boolean,
+                var withZacas : Boolean,
                 var translationStorageParameter: Any,
                 var translationPortParameter: Any,
                 var pmpPortParameter : Any,
@@ -86,7 +87,7 @@ class LsuPlugin(var layer : LaneLayer,
 
   if(withLlcFlush) assert(withCbm)
   def withL1Cmb = withCbm && !withLlcFlush
-  def withAtomics = withZaamo || withZalrsc
+  def withAtomics = withZaamo || withZalrsc || withZacas
 
   override def accessRefillCount: Int = 0
   override def accessWake: Bits = B(0)
@@ -157,7 +158,7 @@ class LsuPlugin(var layer : LaneLayer,
 
     val trapPort = ts.newTrap(layer.lane.getExecuteAge(ctrlAt), Execute.LANE_AGE_WIDTH)
     val flushPort = ss.newFlushPort(layer.lane.getExecuteAge(ctrlAt), laneAgeWidth = Execute.LANE_AGE_WIDTH, withUopId = true)
-    val frontend = new AguFrontend(layer, host, withRvcbm = withCbm)
+    val frontend = new AguFrontend(layer, host, withRvcbm = withCbm, withZacas = withZacas)
     val commitProbe = Flow(LsuCommitProbe()) // Used by the hardware prefetching plugin to learn about the software behavior
 
     // Extends the instruction specifications done by the AGU with sign extensions and flush behavior
@@ -201,6 +202,10 @@ class LsuPlugin(var layer : LaneLayer,
       op.mayFlushUpTo(ctrlAt)
       op.dontFlushFrom(ctrlAt+1)
       op.addRsSpec(RS2, isInt.mux(storeRs2At, 0)) // Only int late usage works, not the float ones (scheduler reasons)
+      if (store.resources.exists {
+        case RfResource(IntRegFile, RD_READ) => true
+        case _ => false
+      }) op.addRsSpec(RD_READ, 0)
     }
 
     val FENCE = Payload(Bool())
@@ -482,7 +487,7 @@ class LsuPlugin(var layer : LaneLayer,
         port.clean := withCbm.mux(CLEAN || INVALIDATE && cbmCsr.invalIntoClean, False)
         port.invalidate := withCbm.mux(INVALIDATE, False)
         port.guest := GUEST
-        port.cas := False
+        port.cas := CAS
         port.op := LsuL1CmdOpcode.LSU
         if(softwarePrefetch) when(LSU_PREFETCH) { port.op := LsuL1CmdOpcode.PREFETCH }
 
@@ -603,6 +608,9 @@ class LsuPlugin(var layer : LaneLayer,
         bypass(FENCE) := False
       }
       l1.CAS_DATA := B(0)
+      if (withZacas) when(FROM_LSU && l1.CAS) {
+        l1.CAS_DATA := up(elp(IntRegFile, RD_READ))
+      }
       if(withStoreBuffer) SB_PTR := storeBuffer.pop.ptr
       val SB_DATA = withStoreBuffer generate insert(storeBuffer.pop.op.data)
       val STORE_BUFFER_EMPTY = withStoreBuffer generate insert(storeBuffer.empty)
@@ -660,7 +668,7 @@ class LsuPlugin(var layer : LaneLayer,
     val preCtrl = new elp.Execute(ctrlAt-1){
       val MISS_ALIGNED = insert((1 to log2Up(LSLEN / 8)).map(i => l1.SIZE === i && l1.MIXED_ADDRESS(i - 1 downto 0) =/= 0).orR)
       if(withCbm) MISS_ALIGNED clearWhen(l1.CLEAN || l1.INVALID)
-      val IS_AMO = insert(SEL && l1.ATOMIC && l1.STORE && l1.LOAD)
+      val IS_AMO = insert(SEL && l1.ATOMIC && l1.STORE && l1.LOAD && !l1.CAS)
     }
 
     val onPma = new elp.Execute(pmaAt){

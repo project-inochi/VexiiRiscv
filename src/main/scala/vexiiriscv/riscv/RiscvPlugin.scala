@@ -24,6 +24,7 @@ class RiscvPlugin(var xlen : Int,
     if(Riscv.RVH.isEmpty) Riscv.RVH.set(has("h"))
     if(Riscv.RVZaamo.isEmpty) Riscv.RVZaamo.set(has("zaamo"))
     if(Riscv.RVZalrsc.isEmpty) Riscv.RVZalrsc.set(has("zalrsc"))
+    if(Riscv.RVZacas.isEmpty) Riscv.RVZacas.set(has("zacas"))
     if(Riscv.RVA.isEmpty) Riscv.RVA.set(has("a"))
     if(Riscv.RVB.isEmpty) Riscv.RVB.set(has("zba", "zbb", "zbs"))
     if(Riscv.RVZba.isEmpty) Riscv.RVZba.set(has("zba"))

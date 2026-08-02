@@ -73,6 +73,10 @@ object IntRegFile extends RegfileSpec with AreaObject {
     key = key,
     resources = List(RS1, RS2, RD).map(this -> _) :+ SQ
   )
+  def TypeCASQ(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RS2, RD_READ, RD).map(this -> _) :+ SQ
+  )
   def TypeIC(key : MaskedLiteral) = SingleDecoding(
     key = key,
     resources = List(RD).map(this -> _)

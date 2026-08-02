@@ -18,6 +18,7 @@ object AguPlugin extends AreaObject {
   val STORE = Payload(Bool())
   val EXECUTE = Payload(Bool())
   val ATOMIC = Payload(Bool()) // LR => ATOMIC && LOAD && !STORE, SC => ATOMIC && !LOAD && STORE, AMO => ATOMIC && LOAD && STORE
+  val CAS = Payload(Bool())
   val SIZE = Payload(UInt(2 bits)) // bytes = 1 << SIZE
   val FLOAT = Payload(Bool())
   val CLEAN, INVALIDATE = Payload(Bool())
@@ -31,7 +32,8 @@ object AguPlugin extends AreaObject {
 class AguFrontend(
     layer: LaneLayer,
     host: PluginHost,
-    withRvcbm : Boolean = false
+    withRvcbm : Boolean = false,
+    withZacas : Boolean = false
   ) extends ExecuteUnitElementSimple.Api(
     layer,
     host.find[SrcPlugin](_.layer == layer),
@@ -40,7 +42,7 @@ class AguFrontend(
   import AguPlugin._
   val sk = SrcKeys
 
-  val defaultsDecodings = mutable.LinkedHashMap(LOAD -> False, STORE -> False, EXECUTE -> False, ATOMIC -> False, FLOAT -> False, CLEAN -> False, INVALIDATE -> False, GUEST -> False)
+  val defaultsDecodings = mutable.LinkedHashMap(LOAD -> False, STORE -> False, EXECUTE -> False, ATOMIC -> False, CAS -> False, FLOAT -> False, CLEAN -> False, INVALIDATE -> False, GUEST -> False)
   def dec(changed : (Payload[_ <: BaseType], Any)*) = {
     val ret =  mutable.LinkedHashMap[Payload[_ <: BaseType], Any]()
     ret ++= defaultsDecodings
@@ -92,6 +94,17 @@ class AguFrontend(
       Rvi.AMOMIND, Rvi.AMOMAXD, Rvi.AMOMINUD, Rvi.AMOMAXUD
     )
     for (amo <- amoUops) add(amo).srcs(sk.Op.SRC1, sk.SRC1.RF).decode(dec(LOAD -> True, STORE -> True, ATOMIC -> True))
+  }
+
+  RVZacas.get && withZacas generate new Area {
+    val amocasW = add(Rvi.AMOCASW).srcs(sk.Op.SRC1, sk.SRC1.RF).decode(dec(LOAD -> True, STORE -> True, ATOMIC -> True, CAS -> True)).uop
+    writingMem += amocasW
+    writingRf += amocasW
+    if (XLEN.get == 64) {
+      val amocasD = add(Rvi.AMOCASD).srcs(sk.Op.SRC1, sk.SRC1.RF).decode(dec(LOAD -> True, STORE -> True, ATOMIC -> True, CAS -> True)).uop
+      writingMem += amocasD
+      writingRf += amocasD
+    }
   }
 
   // LR/SC stuff

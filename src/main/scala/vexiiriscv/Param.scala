@@ -1058,6 +1058,7 @@ class ParamSimple() {
         layer = early0,
         withZaamo = extension.withZaamo,
         withZalrsc = extension.withZalrsc,
+        withZacas = extension.withZacas,
         storeRs2At = storeRs2Late.mux(2, 0),
         storeBufferSlots = lsuStoreBufferSlots,
         storeBufferOps = lsuStoreBufferOps,
