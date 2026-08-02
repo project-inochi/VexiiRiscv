@@ -36,6 +36,7 @@ case class LsuL1Cmd() extends Bundle {
   val load, store, execute, atomic = Bool()
   val clean, invalidate = Bool()
   val guest = Bool()
+  val cas = Bool()
   val storeId = Decode.STORE_ID()
 }
 
@@ -481,6 +482,7 @@ class LsuPlugin(var layer : LaneLayer,
         port.clean := withCbm.mux(CLEAN || INVALIDATE && cbmCsr.invalIntoClean, False)
         port.invalidate := withCbm.mux(INVALIDATE, False)
         port.guest := GUEST
+        port.cas := False
         port.op := LsuL1CmdOpcode.LSU
         if(softwarePrefetch) when(LSU_PREFETCH) { port.op := LsuL1CmdOpcode.PREFETCH }
 
@@ -506,6 +508,7 @@ class LsuPlugin(var layer : LaneLayer,
         port.clean := False
         port.invalidate := False
         port.guest := False
+        port.cas := False
         port.op := LsuL1CmdOpcode.ACCESS
         port.storeId := 0
 
@@ -525,6 +528,7 @@ class LsuPlugin(var layer : LaneLayer,
         port.clean := False
         port.invalidate := False
         port.guest := False
+        port.cas := False
         port.op := LsuL1CmdOpcode.FLUSH
         port.storeId := 0
         when(port.fire) {
@@ -547,6 +551,7 @@ class LsuPlugin(var layer : LaneLayer,
         port.clean := False
         port.invalidate := False
         port.guest := False
+        port.cas := False
         port.storeId := 0
       }
 
@@ -565,6 +570,7 @@ class LsuPlugin(var layer : LaneLayer,
         port.clean := False
         port.invalidate := False
         port.guest := False
+        port.cas := False
         port.op := LsuL1CmdOpcode.STORE_BUFFER
         storeBuffer.pop.ready := port.ready || flush
         port.storeId := storeBuffer.pop.op.storeId
@@ -587,6 +593,7 @@ class LsuPlugin(var layer : LaneLayer,
       l1.GUEST := arbiter.io.output.guest
       l1.PREFETCH := arbiter.io.output.op === LsuL1CmdOpcode.PREFETCH
       l1.FLUSH := arbiter.io.output.op === LsuL1CmdOpcode.FLUSH
+      l1.CAS := arbiter.io.output.cas
       Decode.STORE_ID := arbiter.io.output.storeId
       FROM_ACCESS := arbiter.io.output.op === LsuL1CmdOpcode.ACCESS
       FROM_WB := arbiter.io.output.op === LsuL1CmdOpcode.STORE_BUFFER
@@ -595,6 +602,7 @@ class LsuPlugin(var layer : LaneLayer,
       when(!FROM_LSU){
         bypass(FENCE) := False
       }
+      l1.CAS_DATA := B(0)
       if(withStoreBuffer) SB_PTR := storeBuffer.pop.ptr
       val SB_DATA = withStoreBuffer generate insert(storeBuffer.pop.op.data)
       val STORE_BUFFER_EMPTY = withStoreBuffer generate insert(storeBuffer.empty)

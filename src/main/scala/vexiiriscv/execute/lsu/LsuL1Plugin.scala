@@ -22,12 +22,13 @@ object LsuL1 extends AreaObject {
   // LSU -> L1
   val ABORD, SKIP_WRITE = Payload(Bool()) // Used on ctrl stage to prevent side effect
   val SEL = Payload(Bool()) // Enable the L1
-  val LOAD, STORE, EXECUTE, ATOMIC, FLUSH, PREFETCH, CLEAN, INVALID, GUEST = Payload(Bool()) // Specifies the kind of memory request
+  val LOAD, STORE, EXECUTE, ATOMIC, FLUSH, PREFETCH, CLEAN, INVALID, GUEST, CAS = Payload(Bool()) // Specifies the kind of memory request
   val MIXED_ADDRESS = Payload(Global.MIXED_ADDRESS) // Address before the MMU, can only use the 4K page LSB
   val PHYSICAL_ADDRESS = Payload(Global.PHYSICAL_ADDRESS)
   val WRITE_DATA = Payload(Bits(Riscv.LSLEN bits))
   val MASK = Payload(Bits(Riscv.LSLEN / 8 bits)) // Also needed for loads
   val SIZE = Payload(UInt(log2Up(log2Up(Riscv.LSLEN / 8+1)) bits)) // Also needed for loads
+  val CAS_DATA = Payload(Bits(Riscv.LSLEN bits)) // Compared data observed by the caller
 
   // L1 -> LSU
   val READ_DATA = Payload(Bits(Riscv.LSLEN bits))
@@ -36,6 +37,7 @@ object LsuL1 extends AreaObject {
   val REFILL_HIT = Payload(Bool()) // A ongoing refill is on the same cache set (this is just an optional detail, HAZARD is already set)
   val WAIT_REFILL = Payload(cloneOf(REFILL_BUSY.get)) // Specifies which refill should be waited on before retrying the failed access (optional)
   val WAIT_WRITEBACK = Payload(cloneOf(WRITEBACK_BUSY.get))
+  val CAS_HIT = Payload(Bool()) // The CAS operation is hit (if this is False, the CAS operation is not performed and the the caller may restart the operation if necessary).
 
   // A few constants for other plugins to know about
   val SETS = blocking[Int]
@@ -894,7 +896,7 @@ class LsuL1Plugin(val lane : ExecuteLaneService,
         val doRefill = SEL && askRefill
         val doUpgrade = SEL && askUpgrade
         val doFlush = SEL && askFlush
-        val doWrite = SEL && STORE && WAYS_HIT && this(WAYS_TAGS).reader(WAYS_HITS)(w => withCoherency.mux(w.unique, True) && !w.fault) && !SKIP_WRITE
+        val doWrite = SEL && STORE && WAYS_HIT && this(WAYS_TAGS).reader(WAYS_HITS)(w => withCoherency.mux(w.unique, True) && !w.fault) && !SKIP_WRITE && (!CAS || CAS_HIT)
         val doCbm = withCbm.mux(SEL && askCbm && wayWriteReservation.win && !writeback.full && !refillHazard && !writebackHazard, False)
 
         val wayId = OHToUInt(WAYS_HITS)
@@ -1046,6 +1048,17 @@ class LsuL1Plugin(val lane : ExecuteLaneService,
           }
         }
         READ_DATA := BYPASSED_DATA
+
+        val cas = new Area {
+          CAS_HIT := !(((BYPASSED_DATA ^ SIZE.muxListDc(for(size <- 0 to log2Up(Riscv.LSLEN / 8)) yield {
+            val w = (1 << size) * 8
+            size -> CAS_DATA(0, w bits).#*(Riscv.LSLEN / w)
+          })) & Cat(MASK.asBools.map(_ #* 8))).orR)
+
+          when (CAS && !CAS_HIT) {
+            shared.write.valid := False
+          }
+        }
 
         when(preventSideEffects) {
           shared.write.valid := False
