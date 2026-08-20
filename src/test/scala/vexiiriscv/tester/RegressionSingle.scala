@@ -64,6 +64,7 @@ class RegressionSingle(compiled : SimCompiled[VexiiRiscv],
   val priv = dut.host.get[PrivilegedPlugin]
   val mmu = dut.host.get[MmuPlugin]
   val pmp = dut.host.get[PmpPlugin]
+  val withImsic = priv.exists(_.p.withImsic)
 
   val rvm = dut.database(Riscv.RVM)
   val rvc = dut.database(Riscv.RVC)
@@ -129,6 +130,7 @@ class RegressionSingle(compiled : SimCompiled[VexiiRiscv],
     t.noStdin()
     t.ibusReadyFactor(0.5)
     t.dbusReadyFactor(0.5)
+    if (withImsic) t.noRvlsCheck()
     t
   }
 
@@ -395,13 +397,24 @@ class RegressionSingle(compiled : SimCompiled[VexiiRiscv],
       }
     }
     val path = s"ext/NaxSoftware/buildroot/images/$arch"
+    val rootfs = new File(path, "rootfs.cpio")
+    val outputDirectory = new File(compiled.simConfig.getTestPath("buildroot"))
+    val deviceTree = BuildrootDeviceTree.generate(
+      dut,
+      rootfs,
+      outputDirectory
+    )
+    val openSbi = BuildrootDeviceTree.prepareOpenSbiFirmware(
+      new File(path, "fw_jump.bin"),
+      outputDirectory
+    )
     val args = newArgs()
     args.failAfter(20000000000l)
     args.name("buildroot")
-    args.loadBin(0x80000000l, s"$path/fw_jump.bin")
-    args.loadBin(0x80F80000l, s"$path/linux.dtb")
+    args.loadBin(0x80000000l, openSbi.getAbsolutePath)
+    args.loadBin(0x80F80000l, deviceTree.dtb.getAbsolutePath)
     args.loadBin(0x80400000l, s"$path/Image")
-    args.loadBin(0x81000000l, s"$path/rootfs.cpio")
+    args.loadBin(0x81000000l, rootfs.getPath)
 
     args.fsmGetc("buildroot login:")
     args.fsmSleep(100000*10)
@@ -455,6 +468,8 @@ class RegressionSingle(compiled : SimCompiled[VexiiRiscv],
       help("help").text("prints this usage text")
       t.addOptions(this)
     }.parse(args.args, ()).nonEmpty)
+    require(!withImsic || !t.withRvlsCheck,
+      "Spike/RVLS does not yet support IMSIC; IMSIC regression tests must disable RVLS checking")
 
     val testPath = new File(compiled.simConfig.getTestPath(t.testName.get))
     val passFile = new File(testPath, "PASS")

@@ -16,7 +16,10 @@ class TestArgs{
   def printStats() : this.type = {args ++= List("--print-stats"); this }
   def traceAll() : this.type = {args ++= List("--trace-all"); this }
   def noProbe() : this.type = {args ++= List("--no-probe"); this }
-  def noRvlsCheck() : this.type = {args ++= List("--no-rvls-check"); this }
+  def noRvlsCheck() : this.type = {
+    if (!args.contains("--no-rvls-check")) args += "--no-rvls-check"
+    this
+  }
   def noStdin() : this.type = {args ++= List("--no-stdin"); this }
   def fsmSuccess() : this.type = {args ++= List("--fsm-success"); this }
 
