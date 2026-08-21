@@ -1144,7 +1144,7 @@ class ParamSimple() {
     if(extension.withIndirectCsr) plugins += new IndirectCsrPlugin(extension.withSscsrind, privParam.withHypervisor && extension.withSscsrind)
     if(privParam.withImsic) plugins += new ImsicPlugin(privParam)
     plugins += new PrivilegedPlugin(privParam, withHartIdInput.mux(null, hartId until hartId+hartCount))
-    plugins += new TrapPlugin(trapAt = intWritebackAt, recordHtinst = recordHtinst)
+    plugins += new TrapPlugin(trapAt = intWritebackAt, recordHtinst = recordHtinst, withDirtyLog = withDirtyLog)
     if(withTesterPlugin) plugins += new TesterPlugin()
     plugins += new EnvPlugin(early0, executeAt = 0)
     if(embeddedJtagTap || embeddedJtagInstruction) plugins += new EmbeddedRiscvJtag(
