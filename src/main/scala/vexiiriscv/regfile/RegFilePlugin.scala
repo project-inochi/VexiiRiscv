@@ -12,7 +12,7 @@ import spinal.lib.misc.plugin.FiberPlugin
 import vexiiriscv.Global
 import vexiiriscv.decode.Decode
 import vexiiriscv.fetch.InitService
-import vexiiriscv.riscv.RegfileSpec
+import vexiiriscv.riscv.{RegfileSpec, Riscv}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -63,6 +63,21 @@ class RegFilePlugin(var spec : RegfileSpec,
     writes.map(_.port)
   }
 
+  override def simSetRegister(id: Int, value : Long) = {
+    require(!latchBased)
+
+    import spinal.core.sim._
+
+    val writed = if (Riscv.XLEN.get == 32) value & 0xFFFFFFFFl else value
+
+    if (logic.regfile.fpga.asMem != null) {
+      logic.regfile.fpga.asMem.ram.setBigInt(id, writed)
+    } else if (logic.regfile.fpga.asReg != null) {
+      logic.regfile.fpga.asReg.ram(id) #= writed
+    } else {
+      assert(false, "Currenty register does not support set register")
+    }
+  }
 
   override def initHold(): Bool = !logic.initalizer.done
 
