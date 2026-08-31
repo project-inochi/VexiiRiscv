@@ -8,7 +8,7 @@ import spinal.lib.misc.plugin.FiberPlugin
 import spinal.lib.misc.pipeline._
 import vexiiriscv._
 import vexiiriscv.riscv.Riscv
-import vexiiriscv.misc.PrivilegedPlugin
+import vexiiriscv.misc.{PerformanceCounterService, PrivilegedPlugin}
 
 import scala.collection.mutable.{ArrayBuffer, LinkedHashMap}
 
@@ -92,6 +92,7 @@ class PteUpdatePlugin extends FiberPlugin {
   val logic = during setup new Area{
     val priv = host[PrivilegedPlugin]
     val access = host[TranslatedDBusAccessService]
+    val pcs = host.get[PerformanceCounterService]
 
     val accessLock = retains(access.accessRetainer)
 
@@ -131,6 +132,62 @@ class PteUpdatePlugin extends FiberPlugin {
 
       def cmd = update.cmd
       def rsp = update.rsp
+
+      /*
+       * These are architectural event sources, rather than transaction
+       * probes.  In particular, a CAS retry is counted only when its response
+       * is consumed, and a D transition/log append is counted only when the
+       * update response is committed to the requester.  This keeps replay and
+       * back-pressure from turning one architectural store into duplicate
+       * counter events.
+       */
+      val casAttemptEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_PTE_CAS_ATTEMPT))
+      val casRetryEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_PTE_CAS_RETRY))
+      val dTransitionEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_D_TRANSITION))
+      val logAppendEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_LOG_APPEND))
+      val logFaultEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_LOG_FAULT))
+      val updateBusyEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_UPDATE_BUSY_CYCLES, !isActive(IDLE)))
+      val logBusyEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_LOG_BUSY_CYCLES,
+          isActive(LOG_CHECK) || isActive(LOG_CMD) || isActive(LOG_RSP)))
+      val casBusyEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_CAS_BUSY_CYCLES,
+          isActive(CMD) || isActive(RSP)))
+
+      /* Event ports are combinational sources.  Keep an explicit inactive
+         default for ports driven conditionally below; this is required both
+         for latch-free RTL and for implementations which omit the PMU. */
+      casAttemptEvent.foreach(_ := False)
+      casRetryEvent.foreach(_ := False)
+      dTransitionEvent.foreach(_ := False)
+      logAppendEvent.foreach(_ := False)
+      logFaultEvent.foreach(_ := False)
+
+      casAttemptEvent.foreach(_.setWhen(ucmd.valid && ucmd.ready && ucmd.cas))
+      /* ursp.ready is asserted only for the response handshake in RSP. */
+      casRetryEvent.foreach(_.setWhen(
+        isActive(RSP) && ursp.valid && ursp.ready &&
+          !(ursp.error.orR || ursp.updated || ursp.dirtyLogFault)))
+      dTransitionEvent.foreach(_.setWhen(
+        isActive(RSP) && ursp.valid && rsp.ready && ursp.ready &&
+          request.mask.D && !request.expected(7) &&
+          !ursp.error.orR && !ursp.dirtyLogFault && ursp.updated))
+      if (update.requestLog) {
+        logAppendEvent.foreach(_.setWhen(
+          isActive(RSP) && ursp.valid && rsp.ready && ursp.ready &&
+            request.mask.D && !request.expected(7) &&
+            !ursp.error.orR && !ursp.dirtyLogFault &&
+            ursp.updated && logger.recorded(request.virtualPPN, request.guest)))
+        logFaultEvent.foreach(_.setWhen(
+          isActive(LOG_CHECK) && logger.full(request.virtualPPN, currentGuest) &&
+            rsp.valid && rsp.ready))
+      }
 
       cmd.ready         := False
       rsp.valid         := False

@@ -1,0 +1,92 @@
+package vexiiriscv.tester
+
+import org.scalatest.funsuite.AnyFunSuite
+import spinal.core.SpinalConfig
+import vexiiriscv.{ParamSimple, VexiiRiscv}
+
+import java.io.File
+import java.nio.file.Files
+
+class BuildrootDeviceTreeTester extends AnyFunSuite {
+  private lazy val rv32Dut = elaborate(linuxParam(32), "BuildrootDeviceTreeRv32")
+
+  private lazy val rv64Dut = {
+    val param = linuxParam(64)
+    param.addISA("c", "h", "zba", "zbb", "zbc", "zbs", "zicbom", "zicntr", "zihpm")
+    param.fetchL1Enable = true
+    param.fetchL1Sets = 8
+    param.fetchL1Ways = 2
+    param.lsuL1Enable = true
+    param.lsuL1Sets = 16
+    param.lsuL1Ways = 4
+    param.privParam.imsicInterrupts = 256
+    param.privParam.guestExternalInterruptFiles = 3
+    elaborate(param, "BuildrootDeviceTreeRv64")
+  }
+
+  test("generate RV32 Sv32 Buildroot DTS and DTB") {
+    val directory = Files.createTempDirectory("vexii-buildroot-dt-rv32-").toFile
+    val artifacts = BuildrootDeviceTree.generate(rv32Dut, rootfs(directory), new File(directory, "output"))
+
+    assert(artifacts.dts.isFile)
+    assert(artifacts.dtb.isFile)
+  }
+
+  test("generate RV64 Sv39 H L1 IMSIC Buildroot DTS and DTB") {
+    val directory = Files.createTempDirectory("vexii-buildroot-dt-rv64-").toFile
+    val artifacts = BuildrootDeviceTree.generate(rv64Dut, rootfs(directory), new File(directory, "output"))
+
+    assert(artifacts.dts.isFile)
+    assert(artifacts.dtb.isFile)
+  }
+
+  test("fail when dtc cannot be started without leaving a DTB") {
+    val directory = Files.createTempDirectory("vexii-buildroot-dt-no-dtc-").toFile
+    val output = new File(directory, "output")
+    val error = intercept[IllegalStateException] {
+      BuildrootDeviceTree.generate(
+        rv32Dut,
+        rootfs(directory),
+        output,
+        new File(directory, "missing-dtc").getAbsolutePath
+      )
+    }
+
+    assert(error.getMessage.contains(new File(output, "linux.dtb").getAbsolutePath))
+    assert(!new File(output, "linux.dtb").exists())
+  }
+
+  test("prepare prebuilt OpenSBI firmware to consume the external DTB") {
+    val directory = Files.createTempDirectory("vexii-buildroot-opensbi-").toFile
+    Seq("rv32ima", "rv32imac", "rv64ima", "rv64imac", "rv64imafdc").foreach { arch =>
+      val source = new File(s"ext/NaxSoftware/buildroot/images/$arch/fw_jump.bin")
+      val output = BuildrootDeviceTree.prepareOpenSbiFirmware(source, new File(directory, arch))
+
+      assert(output.isFile)
+      assert(output.length() == source.length())
+      assert(!java.util.Arrays.equals(Files.readAllBytes(output.toPath), Files.readAllBytes(source.toPath)))
+    }
+  }
+
+  private def linuxParam(xlen: Int): ParamSimple = {
+    val param = new ParamSimple
+    param.xlen = xlen
+    param.physicalWidth = 32
+    param.addISA("m", "a", "s", "u")
+    param
+  }
+
+  private def elaborate(param: ParamSimple, name: String): VexiiRiscv = {
+    param.fixIsaParams()
+    val directory = Files.createTempDirectory("vexii-buildroot-dt-rtl-").toFile
+    SpinalConfig(targetDirectory = directory.getAbsolutePath)
+      .generateVerilog(VexiiRiscv(TestBench.paramToPlugins(param)).setDefinitionName(name))
+      .toplevel
+  }
+
+  private def rootfs(directory: File): File = {
+    val file = new File(directory, "rootfs.cpio")
+    Files.write(file.toPath, Array.fill[Byte](257)(0))
+    file
+  }
+}

@@ -88,6 +88,7 @@ class LsuCachelessPlugin(var layer : LaneLayer,
     val pp = host[PrivilegedPlugin]
     val ts = host[TrapService]
     val ss = host[ScheduleService]
+    val pcs = host.get[PerformanceCounterService]
     val buildBefore = retains(elp.pipelineLock, ats.portsLock, sats.portsLock, ps.portsLock)
     val atsStorageLock = retains(ats.storageLock, sats.storageLock)
     val retainer = retains(List(elp.uopLock, srcp.elaborationLock, ifp.elaborationLock, ts.trapLock, ss.elaborationLock, cap.csrLock, ds.elaborationLock) ++ fpwbp.map(_.elaborationLock))
@@ -96,6 +97,15 @@ class LsuCachelessPlugin(var layer : LaneLayer,
     val translationStorage = ats.newStorage(translationStorageParameter, PerformanceCounterService.DCACHE_TLB_CYCLES)
     val shadowTranslationStorage = sats.newStorage(translationStorageParameter, PerformanceCounterService.DCACHE_TLB_CYCLES)
     atsStorageLock.release()
+
+    /* Cacheless is the portable fallback for LSU store accounting.  The
+       command handshake is the architectural acceptance point; there is no
+       L1 miss or coherence transaction to expose in this implementation. */
+    val storeAccessEvent = pcs.map(_.createEventPort(
+      PerformanceCounterService.LSU_STORE_ACCESS))
+    val storeMissEvent = pcs.map(_.createEventPort(
+      PerformanceCounterService.LSU_STORE_MISS, False))
+    storeAccessEvent.foreach(_ := False)
 
     val trapPort = ts.newTrap(layer.lane.getExecuteAge(forkAt), Execute.LANE_AGE_WIDTH)
     val flushPort = ss.newFlushPort(layer.lane.getExecuteAge(forkAt), laneAgeWidth = Execute.LANE_AGE_WIDTH, withUopId = true)
@@ -304,6 +314,8 @@ class LsuCachelessPlugin(var layer : LaneLayer,
       bus.cmd.fromHart := True
       bus.cmd.hartId := Global.HART_ID
       bus.cmd.uopId := Decode.UOP_ID
+      storeAccessEvent.foreach(_.setWhen(
+        bus.cmd.fire && bus.cmd.write && !bus.cmd.io))
       if(withAtomics) {
         bus.cmd.amoEnable := ATOMIC
         bus.cmd.amoOp     := UOP(31 downto 27)

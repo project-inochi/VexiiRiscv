@@ -152,6 +152,10 @@ class LsuPlugin(var layer : LaneLayer,
     val events = pcs.map(p => new Area {
       val waiting = p.createEventPort(PerformanceCounterService.DCACHE_WAITING)
       waiting := False
+      val storeAccess = p.createEventPort(PerformanceCounterService.LSU_STORE_ACCESS)
+      val storeMiss = p.createEventPort(PerformanceCounterService.LSU_STORE_MISS)
+      storeAccess := False
+      storeMiss := False
     })
 
     earlyLock.release()
@@ -739,6 +743,18 @@ class LsuPlugin(var layer : LaneLayer,
     // A loooot of things are happening here.
     val onCtrl = new elp.Execute(ctrlAt) {
       val lsuTrap = False
+
+      /* Explicit guest/host LSU stores are counted at the pipeline firing
+         boundary.  PTE walker traffic (FROM_UPDATE/ACCESS), prefetches, and
+         I/O are intentionally excluded so one architectural guest store has
+         one portable store-access event. */
+      val architecturalStore = down.isFiring && SEL && FROM_LSU &&
+        l1.STORE && !FROM_PREFETCH && !FENCE && !onPma.IO
+      events.foreach { e =>
+        e.storeAccess.setWhen(architecturalStore)
+        e.storeMiss.setWhen(architecturalStore &&
+          (l1.MISS || l1.MISS_UNIQUE) && !MMU_FAILURE && !GUEST_MMU_FAILURE)
+      }
 
       // Data which should be written to the memory, before being aligned to the memory address
       val writeData = Bits(Riscv.LSLEN bits)

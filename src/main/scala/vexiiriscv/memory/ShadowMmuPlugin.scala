@@ -230,6 +230,10 @@ class ShadowMmuPlugin(var spec : MmuSpec,
       val CMD, RSP, REFILL, DONE = List.fill(spec.levels.size)(new State)
       val UPDATE_CMD, UPDATE_RSP = List.fill(spec.levels.size)(new State)
 
+      val refillEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_SHADOW_TLB_REFILL))
+      refillEvent.foreach(_ := False)
+
       val busy = !isActive(IDLE)
       val virtual = Reg(UInt(MIXED_WIDTH bits))
 
@@ -537,10 +541,21 @@ class ShadowMmuPlugin(var spec : MmuSpec,
           }
         }
       }
+
+      /* Count only a successful response which hands a translation back to
+         the requester.  Page/access/dirty-log faults are not refills. */
+      refillEvent.foreach(_.setWhen(
+        DONE.map(state => isActive(state)).orR && refillPorts.map { port =>
+          port.rsp.fire && !port.rsp.pageFault && !port.rsp.accessFault &&
+            !port.rsp.dirtyLogFault
+        }.orR))
     }
 
     //Assume no mmu access are done to the given hart while being invalidated
     val invalidate = new Area{
+      val invalidateEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_SHADOW_TLB_INVALIDATE))
+      invalidateEvent.foreach(_ := False)
       val arbiter = StreamArbiterFactory().roundRobin.transactionLock.buildOn(invalidationPorts.map(_.cmd))
       val depthMax = storageSpecs.map(_.p.levels.map(_.sets).max).max
       val counter = Reg(UInt(log2Up(depthMax) bits))
@@ -565,6 +580,7 @@ class ShadowMmuPlugin(var spec : MmuSpec,
           busy := False
           arbiter.io.output.ready := True
         }
+        invalidateEvent.foreach(_.setWhen(arbiter.io.output.fire))
       }
     }
 

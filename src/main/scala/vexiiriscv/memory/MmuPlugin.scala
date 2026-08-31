@@ -504,6 +504,15 @@ class MmuPlugin(var spec : MmuSpec,
         })
         requireMmuLockup clearWhen(ps.req.FORCE_PHYSICAL)
 
+        /* A miss is an architectural translation request which leaves the
+           TLB and therefore needs the page-walk/refill path.  Use the pipeline
+           firing boundary so a stalled request is counted once. */
+        val tlbMissEvent = pcs.map(_.createEventPort(
+          PerformanceCounterService.MMU_TLB_MISS))
+        tlbMissEvent.foreach(_ := False)
+        tlbMissEvent.foreach(_.setWhen(
+          ps.stages.last.isFiring && requireMmuLockup && !hit))
+
         import ps.rsp.keys._
         when(requireMmuLockup) {
           val permissionFault = hit && permRsp.page_fault
@@ -539,6 +548,10 @@ class MmuPlugin(var spec : MmuSpec,
       val IDLE = new State
       val CMD, RSP, REFILL, DONE = List.fill(spec.levels.size)(new State)
       val UPDATE_CMD, UPDATE_RSP = List.fill(spec.levels.size)(new State)
+
+      val refillEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.MMU_TLB_REFILL))
+      refillEvent.foreach(_ := False)
 
       val busy = !isActive(IDLE)
       val virtual = Reg(UInt(MIXED_WIDTH bits))
@@ -881,6 +894,15 @@ class MmuPlugin(var spec : MmuSpec,
           doneLogic
         }
       }
+
+      /* A refill is complete when the selected requester consumes a
+         successful response.  Fault responses are deliberately excluded:
+         they are architectural faults, not TLB entries. */
+      refillEvent.foreach(_.setWhen(
+        DONE.map(isActive).orR && refillPorts.map { port =>
+          port.rsp.fire && !port.rsp.pageFault && !port.rsp.accessFault &&
+            !port.rsp.guestFault && !port.rsp.dirtyLogFault
+        }.orR))
     }
 
     //Assume no mmu access are done to the given hart while being invalidated

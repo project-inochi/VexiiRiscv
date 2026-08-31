@@ -1166,6 +1166,9 @@ class LsuL1Plugin(val lane : ExecuteLaneService,
 
       // Handle what should be done / what side effects are needed from a probe request.
       val onCtrl = new pip.Ctrl(coherentCtrlAt){
+        val coherenceRetryEvent = pcs.map(_.createEventPort(
+          PerformanceCounterService.LSU_COHERENCE_RETRY))
+        coherenceRetryEvent.foreach(_ := False)
         val reservation = tagsWriteArbiter.create(1)
 
         val locked = LOCK_HIT || !LOCK_VALID && lockPort.valid //Pessimistic approach
@@ -1229,6 +1232,13 @@ class LsuL1Plugin(val lane : ExecuteLaneService,
         rsp.allowShared  := ALLOW_SHARED
         rsp.getDirtyData := ALLOW_PROBE_DATA
         rsp.writeback    := ASK_DATA
+
+        /* Probe responses requesting a replay are the architectural
+           coherence-retry boundary.  Count the handshake, not every cycle
+           that the response remains stalled. */
+        /* Probe responses are Flow (no back-pressure signal); a valid redo
+           pulse is therefore the architectural retry boundary. */
+        coherenceRetryEvent.foreach(_.setWhen(rsp.valid && redo))
 
         // Ensure that inflight LSU request become aware that the probe did some changes
         val lsuHazarder = for(eid <- wayReadAt to ctrlAt-1) yield new Area{

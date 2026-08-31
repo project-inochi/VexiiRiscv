@@ -4,7 +4,7 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.misc.plugin.FiberPlugin
 import spinal.lib.misc.pipeline._
-import vexiiriscv.misc.{PrivilegedPlugin, TrapReason, TrapService}
+import vexiiriscv.misc.{PerformanceCounterService, PrivilegedPlugin, TrapReason, TrapService}
 import vexiiriscv.riscv.{Const, CSR, PrivilegeMode, Rvi, Rvh}
 import vexiiriscv._
 import vexiiriscv.Global._
@@ -30,6 +30,7 @@ class EnvPlugin(layer : LaneLayer,
     val sp = host[ReschedulePlugin]
     val ts = host[TrapService]
     val ps = host[PrivilegedPlugin]
+    val pcs = host.get[PerformanceCounterService]
     val ioRetainer = retains(sp.elaborationLock, ts.trapLock)
     awaitBuild()
     import SrcKeys._
@@ -79,6 +80,14 @@ class EnvPlugin(layer : LaneLayer,
       val isGuest = PrivilegeMode.isGuest(privilege)
       val xretPriv = PrivilegeMode(PrivilegeMode.isGuest(privilege), Decode.UOP(29 downto 28))
       val commit = False
+
+      /* Count the architectural acceptance of HFENCE.GVMA.  The event is
+         intentionally generated at the instruction boundary, not from the
+         MMU's internal invalidate FSM, so a replayed/faulted instruction does
+         not look like multiple fences to firmware. */
+      val hfenceGvmaEvent = pcs.map(_.createEventPort(
+        PerformanceCounterService.SHDLT_HFENCE_GVMA))
+      hfenceGvmaEvent.foreach(_ := False)
 
       def privilegeCheck(payloads: mutable.LinkedHashMap[Int, Bool], privilege: SInt): Bool = payloads.map{case (mode, cond) => privilege === mode && cond}.orR
 
@@ -215,6 +224,8 @@ class EnvPlugin(layer : LaneLayer,
         flushPort.valid := True
         trapPort.valid := True
         bypass(Global.TRAP) := True
+        hfenceGvmaEvent.foreach(_.setWhen(
+          this(OP) === EnvPluginOp.HFENCE_GVMA && commit))
         when(!commit) {
           bypass(COMMIT) := False
         }
